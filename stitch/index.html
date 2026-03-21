@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Luminous Ledger</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-error": "#ffffff",
+              "surface-container-lowest": "#ffffff",
+              "tertiary-fixed": "#e2dfff",
+              "on-primary-fixed": "#001a41",
+              "surface-tint": "#005bc1",
+              "primary-container": "#0070eb",
+              "on-tertiary-fixed": "#0c006b",
+              "on-secondary-container": "#626267",
+              "on-primary-container": "#fefcff",
+              "on-secondary-fixed": "#1a1b1f",
+              "surface-bright": "#f9f9fb",
+              "tertiary-fixed-dim": "#c2c1ff",
+              primary: "#0058bc",
+              "on-primary": "#ffffff",
+              background: "#f9f9fb",
+              "surface-container-low": "#f3f3f5",
+              "inverse-on-surface": "#f0f0f2",
+              "on-error-container": "#93000a",
+              "tertiary-container": "#6462ec",
+              "outline-variant": "#c1c6d7",
+              "primary-fixed": "#d8e2ff",
+              secondary: "#5d5e63",
+              "secondary-container": "#e0dfe4",
+              "secondary-fixed": "#e3e2e7",
+              "surface-variant": "#e2e2e4",
+              "inverse-surface": "#2f3132",
+              surface: "#f9f9fb",
+              "primary-fixed-dim": "#adc6ff",
+              "on-primary-fixed-variant": "#004493",
+              "inverse-primary": "#adc6ff",
+              "error-container": "#ffdad6",
+              outline: "#717786",
+              "on-surface-variant": "#414755",
+              "on-tertiary": "#ffffff",
+              "on-tertiary-container": "#fffbff",
+              "surface-container-highest": "#e2e2e4",
+              "surface-dim": "#d9dadc",
+              "on-secondary-fixed-variant": "#46464b",
+              error: "#ba1a1a",
+              "on-background": "#1a1c1d",
+              "on-tertiary-fixed-variant": "#332dbc",
+              "surface-container": "#eeeef0",
+              "on-secondary": "#ffffff",
+              "secondary-fixed-dim": "#c6c6cb",
+              tertiary: "#4a47d2",
+              "on-surface": "#1a1c1d",
+              "surface-container-high": "#e8e8ea"
+            },
+            fontFamily: {
+              headline: ["Inter"],
+              body: ["Inter"],
+              label: ["Inter"],
+              mono: ["JetBrains Mono"]
+            },
+            borderRadius: { DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px" }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

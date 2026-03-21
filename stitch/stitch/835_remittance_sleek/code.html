@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Luminous Ledger - Remittance View</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "tertiary-fixed-dim": "#c2c1ff",
+                        "inverse-on-surface": "#f0f0f2",
+                        "primary": "#0058bc",
+                        "surface-tint": "#005bc1",
+                        "on-background": "#1a1c1d",
+                        "inverse-primary": "#adc6ff",
+                        "surface-container": "#eeeef0",
+                        "outline": "#717786",
+                        "tertiary-container": "#6462ec",
+                        "tertiary": "#4a47d2",
+                        "surface-container-high": "#e8e8ea",
+                        "on-tertiary-fixed-variant": "#332dbc",
+                        "surface-dim": "#d9dadc",
+                        "primary-fixed-dim": "#adc6ff",
+                        "primary-container": "#0070eb",
+                        "primary-fixed": "#d8e2ff",
+                        "error-container": "#ffdad6",
+                        "surface-bright": "#f9f9fb",
+                        "on-tertiary-container": "#fffbff",
+                        "surface-container-low": "#f3f3f5",
+                        "on-secondary-fixed": "#1a1b1f",
+                        "on-surface-variant": "#414755",
+                        "on-error-container": "#93000a",
+                        "background": "#f9f9fb",
+                        "on-surface": "#1a1c1d",
+                        "secondary-fixed-dim": "#c6c6cb",
+                        "surface-variant": "#e2e2e4",
+                        "outline-variant": "#c1c6d7",
+                        "on-error": "#ffffff",
+                        "on-primary-container": "#fefcff",
+                        "surface-container-highest": "#e2e2e4",
+                        "on-secondary": "#ffffff",
+                        "secondary": "#5d5e63",
+                        "secondary-container": "#e0dfe4",
+                        "on-secondary-container": "#626267",
+                        "on-tertiary": "#ffffff",
+                        "tertiary-fixed": "#e2dfff",
+                        "on-primary-fixed": "#001a41",
+                        "error": "#ba1a1a",
+                        "surface": "#f9f9fb",
+                        "surface-container-lowest": "#ffffff",
+                        "on-secondary-fixed-variant": "#46464b",
+                        "secondary-fixed": "#e3e2e7",
+                        "inverse-surface": "#2f3132",
+                        "on-tertiary-fixed": "#0c006b",
+                        "on-primary": "#ffffff",
+                        "on-primary-fixed-variant": "#004493"
+                    },
+                    fontFamily: {
+                        "headline": ["Inter"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface antialiased">
+<!-- TopAppBar Shell -->
+<header class="fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-sm shadow-slate-200/50 dark:shadow-none flex items-center justify-between px-8 h-16 w-full">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tighter text-blue-700 dark:text-blue-400">Luminous Ledger</span>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-all font-sans tracking-tight" href="{{DATA:SCREEN:SCREEN_16}}">Dashboard</a>
+<a class="text-blue-700 dark:text-blue-400 font-semibold border-b-2 border-blue-600 transition-all font-sans tracking-tight" href="{{DATA:SCREEN:SCREEN_12}}">Analytics</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-all font-sans tracking-tight" href="#">Settings</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 rounded-full hover:bg-slate-100/50 transition-all">
+<span class="material-symbols-outlined text-slate-600">notifications</span>
+</button>
+<button class="p-2 rounded-full hover:bg-slate-100/50 transition-all">
+<span class="material-symbols-outlined text-slate-600">account_circle</span>
+</button>
+</div>
+</header>
+<!-- SideNavBar Shell -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 z-40 bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-2xl shadow-[20px_0_40px_rgba(0,0,0,0.02)] flex flex-col p-4 gap-2">
+<div class="px-4 py-6 mb-2">
+<h2 class="text-sm font-bold text-slate-900 tracking-tight uppercase opacity-50">EDI Portal</h2>
+<p class="text-xs text-blue-700 font-medium">System Active</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 rounded-xl hover:translate-x-1 transition-all duration-200" href="{{DATA:SCREEN:SCREEN_16}}">
+<span class="material-symbols-outlined text-lg">dashboard</span>
+<span class="text-sm font-medium">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 rounded-xl hover:translate-x-1 transition-all duration-200" href="{{DATA:SCREEN:SCREEN_2}}">
+<span class="material-symbols-outlined text-lg">analytics</span>
+<span class="text-sm font-medium">Master Parser</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 bg-white/50 dark:bg-slate-800/50 text-blue-700 dark:text-blue-300 shadow-sm rounded-xl hover:translate-x-1 transition-all duration-200" href="{{DATA:SCREEN:SCREEN_12}}">
+<span class="material-symbols-outlined text-lg">payments</span>
+<span class="text-sm font-medium">835 Remittance</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 rounded-xl hover:translate-x-1 transition-all duration-200" href="{{DATA:SCREEN:SCREEN_18}}">
+<span class="material-symbols-outlined text-lg">group_add</span>
+<span class="text-sm font-medium">834 Enrollment</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 rounded-xl hover:translate-x-1 transition-all duration-200" href="{{DATA:SCREEN:SCREEN_6}}">
+<span class="material-symbols-outlined text-lg">description</span>
+<span class="text-sm font-medium">837 Claims</span>
+</a>
+</nav>
+<button class="mt-4 mx-2 bg-primary text-on-primary py-3 rounded-xl font-semibold shadow-lg shadow-primary/20 flex items-center justify-center gap-2 active:scale-[0.97] transition-all" onclick="alert('Initiating New Transmission process...')">
+<span class="material-symbols-outlined text-sm">add</span>
+<span class="text-sm">New Transmission</span>
+</button>
+<div class="mt-auto pt-4 space-y-1 border-t border-slate-200/50">
+<a class="flex items-center gap-3 px-4 py-2 text-slate-500 hover:bg-slate-200/30 rounded-xl transition-all" href="#" onclick="alert('Opening Help Center...')">
+<span class="material-symbols-outlined text-lg">help</span>
+<span class="text-xs font-medium uppercase tracking-wider">Help Center</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-slate-500 hover:bg-slate-200/30 rounded-xl transition-all" href="#" onclick="alert('Opening Documentation...')">
+<span class="material-symbols-outlined text-lg">menu_book</span>
+<span class="text-xs font-medium uppercase tracking-wider">Documentation</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-16 p-8 min-h-screen">
+<!-- Header Section -->
+<header class="mb-10">
+<h1 class="text-3xl font-extrabold tracking-tight text-on-surface mb-2">Remittance Overview</h1>
+<p class="text-on-surface-variant max-w-2xl">Processed 835 Electronic Remittance Advice (ERA) files. Real-time reconciliation and payment validation.</p>
+</header>
+<!-- KPI Bento Bar -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+<!-- Total Billed -->
+<div class="glass-card p-6 rounded-xl border border-outline-variant/10 shadow-sm">
+<div class="flex items-center justify-between mb-4">
+<span class="text-on-surface-variant text-sm font-semibold uppercase tracking-wider">Total Billed</span>
+<div class="bg-primary/10 p-2 rounded-lg text-primary">
+<span class="material-symbols-outlined">account_balance_wallet</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="text-3xl font-bold tracking-tight">$1,482,900.00</span>
+<span class="text-xs text-primary font-medium mt-1">↑ 12.4% from last period</span>
+</div>
+</div>
+<!-- Total Paid -->
+<div class="glass-card p-6 rounded-xl border border-outline-variant/10 shadow-sm">
+<div class="flex items-center justify-between mb-4">
+<span class="text-on-surface-variant text-sm font-semibold uppercase tracking-wider">Total Paid</span>
+<div class="bg-tertiary/10 p-2 rounded-lg text-tertiary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="text-3xl font-bold tracking-tight">$1,245,670.50</span>
+<span class="text-xs text-tertiary font-medium mt-1">94% Collection Rate</span>
+</div>
+</div>
+<!-- Adjustments -->
+<div class="glass-card p-6 rounded-xl border border-outline-variant/10 shadow-sm">
+<div class="flex items-center justify-between mb-4">
+<span class="text-on-surface-variant text-sm font-semibold uppercase tracking-wider">Adjustments</span>
+<div class="bg-error/10 p-2 rounded-lg text-error">
+<span class="material-symbols-outlined">analytics</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="text-3xl font-bold tracking-tight">$237,229.50</span>
+<span class="text-xs text-error font-medium mt-1">Rejections optimized (-2.1%)</span>
+</div>
+</div>
+</div>
+<!-- High Density Data Table Section -->
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden shadow-[0_32px_64px_rgba(0,0,0,0.04)] border border-outline-variant/5">
+<!-- Table Header Actions -->
+<div class="px-6 py-5 flex items-center justify-between bg-surface-container-low/50 border-b border-outline-variant/10">
+<div class="flex items-center gap-4">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="bg-white border-none rounded-lg pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 w-64 shadow-sm" placeholder="Search Trace ID or Payer..." type="text"/>
+</div>
+<button class="flex items-center gap-2 px-4 py-2 bg-white rounded-lg text-sm font-medium border border-outline-variant/10 hover:bg-surface-container-low transition-all">
+<span class="material-symbols-outlined text-sm">filter_list</span>
+                        Filter
+                    </button>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-2 text-on-surface-variant hover:bg-white rounded-lg transition-all">
+<span class="material-symbols-outlined">download</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-white rounded-lg transition-all">
+<span class="material-symbols-outlined">more_horiz</span>
+</button>
+</div>
+</div>
+<!-- The Ledger Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low/30">
+<th class="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant">Trace Number / File ID</th>
+<th class="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant">Payer / Source</th>
+<th class="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant text-right">Billed</th>
+<th class="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant text-right">Paid</th>
+<th class="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant">Processed Date</th>
+<th class="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant">Status</th>
+<th class="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant"></th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/10">
+<!-- Row 1 -->
+<tr class="hover:bg-primary/5 transition-colors group">
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="text-sm font-bold text-on-surface">835-TRC-94281</span>
+<span class="text-[10px] text-tertiary font-bold tracking-tight uppercase">AI PARSED</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden">
+<img alt="BCBS Logo" class="w-full h-full object-cover" data-alt="Blue Cross Blue Shield stylized logo icon" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA9GZvEzl_XPzc5Y2GkDexcvKmR9ELCOyTvLd13xEIquXO-BB2nbd4oUFR_FEH7auiOhmUlPk1r9ga3eK67_C9yGmzNwUg4E9CeQ00nCTqHnuXCrHTNUbUzzAfZ-pal3bi-1Olxi2-SYBtyNOxOZ5WThnnQEyMNHTraup8PjBrkT90NCcEJeHews25uLrsWAUjsxa_G_onPiGf01QsFiytLtwRCMMB-z1YEg9GX7hE7AZemAOGnfIK_qZyp6wP2rM4nFE2N2Mb2yGbm"/>
+</div>
+<span class="text-sm font-medium">BCBS of Massachusetts</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-medium">$12,450.00</span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-bold text-primary">$12,450.00</span>
+</td>
+<td class="px-6 py-4">
+<span class="text-sm text-on-surface-variant">Oct 24, 2023</span>
+</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold bg-[#E6F4EA] text-[#1E7E34] uppercase tracking-wide">Paid</span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="opacity-0 group-hover:opacity-100 p-2 hover:bg-primary/10 rounded-lg text-primary transition-all">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-primary/5 transition-colors group">
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="text-sm font-bold text-on-surface">835-TRC-94290</span>
+<span class="text-[10px] text-on-surface-variant font-medium tracking-tight">ISA05: ZZ</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden">
+<img alt="UnitedHealth Logo" class="w-full h-full object-cover" data-alt="UnitedHealth Group circular brand icon" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDLqdqRaTRlHbRxeYebcfvPf2TvmEfGPXsLhns7J4lGXf1gvHHPvwy0aa5MMecy6BJQpwbGUltNWfC4aat1RnGp8JCGm9Ekd0mmQmw2UJkp_ssmm-602XKpH2nale1W7xaNhEI1aEYBAHgdJwB0_1rjWwiYBCkmOe882hQEgqq9i1JCdap4mNsuPQffUo1sdcG-SkEcNiLP-D0yV-rHWE0lLU8zc3XcAbRuQ0rj2qT79y_FmpBeMIlPxLUh3Pn9S0pvd-6-2zeY9Lzl"/>
+</div>
+<span class="text-sm font-medium">UnitedHealthcare</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-medium">$4,200.00</span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-bold text-on-surface">$2,100.00</span>
+</td>
+<td class="px-6 py-4">
+<span class="text-sm text-on-surface-variant">Oct 23, 2023</span>
+</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold bg-[#FFF4E5] text-[#B76E00] uppercase tracking-wide">Partial</span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="opacity-0 group-hover:opacity-100 p-2 hover:bg-primary/10 rounded-lg text-primary transition-all">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-primary/5 transition-colors group">
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="text-sm font-bold text-on-surface">835-TRC-94301</span>
+<span class="text-[10px] text-error font-bold tracking-tight uppercase">CRITICAL ERR</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden">
+<img alt="Medicare Logo" class="w-full h-full object-cover" data-alt="Medicare government program official style icon" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDzuR_CyGx-Mr3f4NrcL2VKdpzcReSMLJu8GmYCPzNL4CqTbi6h1abshgqIXMsVrgJxez4PtYLEC6HHes7AE8g08d2kXMXwpRjA5sQv9RUCgiMkqw5cL8zDnOGMIVbYDM7r3VDyneKpoCjBl4CoS4UJp8Uz7va3gLXa5HviNvqsSJnTahPBgnyVtyBiL1QZsK_3Iwx2JLqPAtWFH_k_cuYCZfGUWUao89x_bpGOpy7I0qM-ZTacAf2OjKnSWFIhURBbfuMpyDwX89z4"/>
+</div>
+<span class="text-sm font-medium">CMS Medicare Part B</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-medium">$1,890.00</span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-bold text-error">$0.00</span>
+</td>
+<td class="px-6 py-4">
+<span class="text-sm text-on-surface-variant">Oct 23, 2023</span>
+</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold bg-[#FCE8E8] text-[#D32F2F] uppercase tracking-wide">Denied</span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="opacity-0 group-hover:opacity-100 p-2 hover:bg-primary/10 rounded-lg text-primary transition-all">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-primary/5 transition-colors group">
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="text-sm font-bold text-on-surface">835-TRC-94315</span>
+<span class="text-[10px] text-on-surface-variant font-medium tracking-tight">ISA05: 27</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden">
+<img alt="Aetna Logo" class="w-full h-full object-cover" data-alt="Aetna health insurance corporate logo icon" src="https://lh3.googleusercontent.com/aida-public/AB6AXuARejxXih1cQqT3FF0vLM4i66G-2Pc13qfXMTH6scfI-8-Z1-kH37S0QHkHJ396F5CcjMOqm8hJfPjAYp9s18ll9CVXSGku9HjbSTbfRQ4llvz1lcDqEcegqV_n3A7424i1zQCuEt0_fy9BUm5tChPx4ayim3IKNIRYS82MQXOsUZ18J6nPC24XW0KKELTazalZluxT5h75UPwKWPo6-WgMfb4YpHR0mhckbhqjtfWIW7r7n-WpqmgMFeLHRtUo5ZvQzIlNfuclJVAr"/>
+</div>
+<span class="text-sm font-medium">Aetna Healthcare</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-medium">$56,700.00</span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-bold text-primary">$56,700.00</span>
+</td>
+<td class="px-6 py-4">
+<span class="text-sm text-on-surface-variant">Oct 22, 2023</span>
+</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold bg-[#E6F4EA] text-[#1E7E34] uppercase tracking-wide">Paid</span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="opacity-0 group-hover:opacity-100 p-2 hover:bg-primary/10 rounded-lg text-primary transition-all">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Shell -->
+<div class="px-6 py-4 bg-surface-container-low/20 flex items-center justify-between">
+<span class="text-xs text-on-surface-variant font-medium">Showing 1-10 of 835 records</span>
+<div class="flex gap-2">
+<button class="px-3 py-1.5 bg-white border border-outline-variant/10 rounded-lg text-xs font-semibold shadow-sm hover:bg-surface-container-low transition-all">Previous</button>
+<button class="px-3 py-1.5 bg-primary text-on-primary rounded-lg text-xs font-semibold shadow-md shadow-primary/20 hover:opacity-90 transition-all">Next</button>
+</div>
+</div>
+</div>
+<!-- AI Insight Floating Glass Widget -->
+<div class="fixed bottom-8 right-8 w-80 p-6 glass-card rounded-2xl shadow-2xl border border-white/40 z-40">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-8 h-8 rounded-full bg-tertiary flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-sm">auto_awesome</span>
+</div>
+<h3 class="font-bold text-on-surface tracking-tight">Smart Insight</h3>
+</div>
+<p class="text-sm text-on-surface-variant leading-relaxed mb-4">
+                We've detected a <span class="text-tertiary font-bold">14% increase</span> in medical necessity denials from Medicare. Would you like to view the suggested coding adjustments for next batch?
+            </p>
+<div class="flex gap-2">
+<button class="flex-1 py-2 bg-tertiary text-white text-xs font-bold rounded-lg hover:bg-tertiary-container transition-all" onclick="alert('Loading detailed analysis for Medicare denials...')">View Details</button>
+<button class="px-3 py-2 text-on-surface-variant text-xs font-semibold hover:bg-surface-container-high rounded-lg transition-all" onclick="this.closest('.fixed.bottom-8.right-8').style.display = 'none'">Dismiss</button>
+</div>
+</div>
+</main>
+</body></html>
