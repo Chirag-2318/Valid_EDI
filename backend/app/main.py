@@ -28,7 +28,7 @@ from app.services.exports import csv_bytes, error_report_pdf_bytes, json_bytes
 from app.services.summaries import build_834_summary, build_835_summary, build_family_grouping
 from app.validation.rules import validate
 
-app = FastAPI(title="Healthcare EDI Parser API", version="1.0.0")
+app = FastAPI(title="EdiPro Healthcare EDI Parser API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -257,3 +257,4 @@ def _to_float(value: str) -> float:
         return float(value)
     except ValueError:
         return 0.0
+

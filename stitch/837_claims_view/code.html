@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests"/>
-<title>Luminous Ledger - 837 Claims Auditor</title>
+<title>EdiPro - 837 Claims Auditor</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
@@ -88,84 +88,70 @@
 </head>
 <body class="bg-background text-on-surface font-body selection:bg-primary-fixed selection:text-on-primary-fixed">
 <!-- Top Navigation Bar -->
-<header class="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl fixed top-0 w-full z-50 shadow-sm dark:shadow-none">
-<div class="flex justify-between items-center px-6 py-3 w-full">
+<header class="fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl flex justify-between items-center px-6 py-3 shadow-sm dark:shadow-none transition-all duration-200">
 <div class="flex items-center gap-8">
-<span class="text-xl font-bold tracking-tighter text-slate-900 dark:text-white">Luminous Ledger</span>
+<span class="text-xl font-bold tracking-tighter text-slate-900 dark:text-white cursor-pointer" onclick="window.location.href='../dashboard_sleek/code.html'">EdiPro</span>
 <nav class="hidden md:flex gap-6">
-<a class="text-slate-500 dark:text-slate-400 hover:text-slate-800 transition-all font-sans antialiased tracking-tight" href="{{DATA:SCREEN:SCREEN_16}}">Dashboard</a>
-<a class="text-slate-500 dark:text-slate-400 hover:text-slate-800 transition-all font-sans antialiased tracking-tight" href="#">Reports</a>
-<a class="text-blue-700 dark:text-blue-400 font-semibold border-b-2 border-blue-700 transition-all font-sans antialiased tracking-tight" href="{{DATA:SCREEN:SCREEN_6}}">837 Claims</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="../dashboard_sleek/code.html">Dashboard</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="../837_claims_view/code.html">Reports</a>
 </nav>
 </div>
-<div class="flex items-center gap-4">
-<button class="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm font-medium hover:bg-primary-container active:scale-95 duration-200 transition-all" onclick="alert('Opening file uploader...')">Upload File</button>
-<div class="flex items-center gap-2">
-<button class="p-2 text-slate-500 hover:bg-slate-100/50 rounded-full transition-all">
-<span class="material-symbols-outlined">notifications</span>
-</button>
-<button class="p-2 text-slate-500 hover:bg-slate-100/50 rounded-full transition-all">
-<span class="material-symbols-outlined">settings</span>
-</button>
-<div class="w-8 h-8 rounded-full bg-slate-200 overflow-hidden ml-2">
-<img alt="User Profile Avatar" data-alt="User profile photo in circular frame" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBlYRvPbzsIzGScr_27BqPpAIl19iWiqGOlIdj-G0ma97_FhOZYn8TVpGzv2RqEJSKHXVzEbWg5wq3fc3fMR4uv6cCDdLd_76i-tlaW3h8Rrijen13Jax82vlzasLEEidxdvdIkPvVtDRJSU9rP00_BpJQU09HdIY5P9WAUZHPiC9RHncX1Aaxnr32fp83d0GoQQuBqrogIcqgxjrbs2jOdOeXAVNB5DzqisU0TedRtfUDxPN-XjAhdaRWt4gL8bXpM8-dbw_sUMAHq"/>
+<div class="flex items-center gap-3">
+<div class="hidden sm:flex items-center bg-slate-100/50 dark:hover:bg-slate-800/50 rounded-full px-3 py-1.5 transition-all">
+<span class="material-symbols-outlined text-[20px] text-slate-500">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm w-48 placeholder:text-slate-400" placeholder="Search files..." type="text"/>
 </div>
+<a class="p-2 hover:bg-slate-100/50 rounded-full transition-all active:scale-95" href="../notifications/code.html" aria-label="Open notifications">
+<span class="material-symbols-outlined text-slate-600">notifications</span>
+</a>
+<a class="p-2 hover:bg-slate-100/50 rounded-full transition-all active:scale-95" href="../settings/code.html" aria-label="Open settings">
+<span class="material-symbols-outlined text-slate-600">settings</span>
+</a>
+<a class="h-8 w-8 rounded-full overflow-hidden bg-primary/10 ring-2 ring-white shadow-sm" href="../user_profile/code.html" aria-label="Open user profile">
+<img class="w-full h-full object-cover" data-alt="User Profile Avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCgEW3dXZf1xhBDmpkybJnr21bF6HNiuHphHXF5ZMfTdghbWasho84cnLb8S8iQpaeSBw-fhCGaMQOMakuyIgNossftgFDuvXrrfI8AS1HQ8aXsiiN5jRf5UzMPR3aYhNr7MVZQn2pGVvp51bgB4LzOmkYlr8r84vKcVrNDmd6f9yQ467G7lXlyPhygUgNeyILrY9rjqiqU5HuLzz86Snbq7D27lzvqCYzPfDWO80nIxy6mb85n7yl0OJhP3SQqzcbgwDSKCUiG7ach"/>
+</a>
 </div>
-</div>
-</div>
-<div class="bg-slate-200/20 dark:bg-slate-800/20 h-[1px]"></div>
 </header>
 <!-- Side Navigation Bar -->
-<aside class="fixed left-0 top-0 h-full w-64 z-40 bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-2xl border-r border-slate-200/30 dark:border-slate-800/30 shadow-xl hidden lg:flex flex-col py-6">
-<div class="px-6 mb-10 pt-16">
-<div class="flex items-center gap-3 mb-6">
-<div class="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white shadow-lg shadow-primary/20">
-<span class="material-symbols-outlined">analytics</span>
+<aside class="fixed left-0 top-0 h-full w-64 z-40 bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-2xl border-r border-slate-200/30 dark:border-slate-800/30 shadow-xl dark:shadow-2xl flex flex-col h-full py-6 pt-20">
+<div class="px-6 mb-8 flex items-center gap-3 cursor-pointer" onclick="window.location.href='../dashboard_sleek/code.html'">
+<div class="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 1;">hub</span>
 </div>
 <div>
-<h2 class="text-lg font-black text-slate-900 dark:text-white leading-tight">HealthConnect</h2>
-<p class="text-[10px] uppercase tracking-widest text-slate-400 font-bold">EDI Gateway</p>
+<h2 class="text-lg font-black text-slate-900 dark:text-white leading-none">HealthConnect</h2>
+<p class="text-[10px] uppercase tracking-widest text-slate-500 font-bold mt-1">EDI Gateway</p>
 </div>
 </div>
-<button class="w-full py-3 px-4 bg-white border border-outline-variant/30 shadow-sm rounded-xl text-primary text-sm font-bold flex items-center justify-center gap-2 hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]">
-<span class="material-symbols-outlined text-sm">add</span>
+<nav class="flex-1 px-2 space-y-1">
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]" href="../dashboard_sleek/code.html" data-nav-link="true">
+<span class="material-symbols-outlined">dashboard</span> Dashboard
+            </a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]" href="../master_parser_sleek/code.html" data-nav-link="true">
+<span class="material-symbols-outlined">analytics</span> Master Parser
+            </a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]" href="../835_remittance_sleek/code.html" data-nav-link="true">
+<span class="material-symbols-outlined">payments</span> 835 Remittance
+            </a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]" href="../834_enrollment_sleek/code.html" data-nav-link="true">
+<span class="material-symbols-outlined">group_add</span> 834 Enrollment
+            </a>
+<a class="bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide scale-100 active:scale-[0.98] transition-transform duration-300" href="../837_claims_view/code.html" data-nav-link="true">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">description</span> 837 Claims
+            </a>
+</nav>
+<div class="mt-auto px-4 pb-4">
+<button class="w-full bg-primary text-white rounded-xl py-3 text-sm font-bold shadow-lg shadow-primary/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-all hover:brightness-95" onclick="console.log('Open New Submission Dialog')">
+<span class="material-symbols-outlined text-[20px]">add_circle</span>
                 New Submission
             </button>
 </div>
-<nav class="flex-1 space-y-1">
-<a class="flex items-center gap-3 px-6 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg transition-transform duration-300 text-sm font-medium tracking-wide" href="{{DATA:SCREEN:SCREEN_16}}">
-<span class="material-symbols-outlined">dashboard</span>
-                Dashboard
+<div class="px-2 pt-4 border-t border-slate-200/30 mx-4 space-y-1">
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 rounded-lg flex items-center gap-3 px-4 py-2 text-xs font-medium tracking-wide hover:translate-x-1 transition-transform duration-300" href="../help_center/code.html" data-nav-link="true">
+<span class="material-symbols-outlined text-[18px]">help</span> Help Center
             </a>
-<a class="flex items-center gap-3 px-6 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg transition-transform duration-300 text-sm font-medium tracking-wide" href="{{DATA:SCREEN:SCREEN_2}}">
-<span class="material-symbols-outlined">analytics</span>
-                Master Parser
-            </a>
-<a class="flex items-center gap-3 px-6 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg transition-transform duration-300 text-sm font-medium tracking-wide" href="{{DATA:SCREEN:SCREEN_12}}">
-<span class="material-symbols-outlined">payments</span>
-                835 Remittance
-            </a>
-<a class="flex items-center gap-3 px-6 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg transition-transform duration-300 text-sm font-medium tracking-wide" href="{{DATA:SCREEN:SCREEN_18}}">
-<span class="material-symbols-outlined">group_add</span>
-                834 Enrollment
-            </a>
-<a class="flex items-center gap-3 px-6 py-3 bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg mx-2 transition-transform duration-300 text-sm font-medium tracking-wide" href="{{DATA:SCREEN:SCREEN_6}}">
-<span class="material-symbols-outlined">description</span>
-                837 Claims
-            </a>
-</nav>
-<div class="px-4 mt-auto">
-<div class="p-4 bg-tertiary-fixed rounded-xl mb-6">
-<p class="text-xs font-bold text-on-tertiary-fixed-variant mb-1">AI INSIGHT</p>
-<p class="text-[11px] text-tertiary-container font-medium">32 potential duplicate 837P records detected in Batch #4492.</p>
-</div>
-<a class="flex items-center gap-3 px-4 py-2 text-slate-500 text-sm font-medium hover:text-slate-800 transition-all" href="#">
-<span class="material-symbols-outlined">help</span>
-                Help Center
-            </a>
-<a class="flex items-center gap-3 px-4 py-2 text-slate-500 text-sm font-medium hover:text-slate-800 transition-all" href="#">
-<span class="material-symbols-outlined">menu_book</span>
-                Documentation
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 rounded-lg flex items-center gap-3 px-4 py-2 text-xs font-medium tracking-wide hover:translate-x-1 transition-transform duration-300" href="../documentation/code.html" data-nav-link="true">
+<span class="material-symbols-outlined text-[18px]">menu_book</span> Documentation
             </a>
 </div>
 </aside>
@@ -497,3 +483,4 @@
     })();
 </script>
 </body></html>
+

@@ -1,9 +1,9 @@
-# Design System Strategy: The Luminous Ledger
+# Design System Strategy: the EdiPro design language
 
 ## 1. Overview & Creative North Star
-In the complex, high-stakes world of Healthcare EDI (Electronic Data Interchange), clarity isn't just a preference—it's a clinical requirement. This design system moves away from the rigid, "heavy-duty" software aesthetic common in enterprise healthcare, adopting instead the **"Luminous Ledger"** North Star.
+In the complex, high-stakes world of Healthcare EDI (Electronic Data Interchange), clarity isn't just a preference—it's a clinical requirement. This design system moves away from the rigid, "heavy-duty" software aesthetic common in enterprise healthcare, adopting instead the **"EdiPro"** North Star.
 
-**The Luminous Ledger** represents a fusion of macOS Sonoma's glass-like depth with the high-density informational needs of medical data. We break the traditional "table-heavy" template by using intentional asymmetry, organic glassmorphism, and a depth model that feels physical. We treat data as living objects floating on a sophisticated, layered canvas, utilizing breathable white space to reduce the cognitive load of HIPAA-regulated workflows.
+**the EdiPro design language** represents a fusion of macOS Sonoma's glass-like depth with the high-density informational needs of medical data. We break the traditional "table-heavy" template by using intentional asymmetry, organic glassmorphism, and a depth model that feels physical. We treat data as living objects floating on a sophisticated, layered canvas, utilizing breathable white space to reduce the cognitive load of HIPAA-regulated workflows.
 
 ---
 
@@ -81,3 +81,4 @@ Depth is the differentiator. We use **Tonal Layering** instead of structural lin
 *   **Don't** use solid black (#000000) for text. Use `on-surface` (#1a1c1d) for a softer, more premium contrast.
 *   **Don't** use sharp corners. Everything—including inputs and containers—must fall between `md` (12px) and `xl` (24px) rounding.
 *   **Don't** use traditional "Material" style heavy shadows. If a shadow is visible at first glance, it is too dark. It should feel like a presence, not a shape.
+

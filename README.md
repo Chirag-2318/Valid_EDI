@@ -1,6 +1,6 @@
-# Healthcare X12 EDI Command Center
+# EdiPro Healthcare X12 EDI Command Center
 
-A full-stack web app for uploading, parsing, validating, and auditing HIPAA X12 EDI transactions:
+EdiPro is a full-stack web app for uploading, parsing, validating, and auditing HIPAA X12 EDI transactions:
 
 - 837P / 837I medical claims
 - 835 remittance advice
@@ -86,3 +86,4 @@ docker compose up --build
 - Validation rules are extensible and implemented in `backend/app/validation/rules.py`.
 - Parser loop tree is built for navigation and can be deepened to full implementation-guide loop granularity.
 - For NPI verification with CMS NPPES live API, add a dedicated background lookup endpoint and enrich provider checks.
+

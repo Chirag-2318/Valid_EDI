@@ -164,3 +164,4 @@ def _to_float(value: str) -> float:
         return float(clean)
     except ValueError:
         return 0.0
+

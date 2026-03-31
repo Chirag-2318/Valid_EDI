@@ -49,3 +49,4 @@ def error_report_pdf_bytes(issues: list[dict[str, Any]]) -> bytes:
 
     pdf.save()
     return buffer.getvalue()
+

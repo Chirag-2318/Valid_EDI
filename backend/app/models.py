@@ -102,3 +102,4 @@ class BatchResult(BaseModel):
 
 
 LoopNode.model_rebuild()
+
