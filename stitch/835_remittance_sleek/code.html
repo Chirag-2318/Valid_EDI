@@ -463,17 +463,45 @@
 </script>
 <script>
     (function () {
-        const storageKey = 'ediSubmissions';
-        const items = JSON.parse(localStorage.getItem(storageKey) || '[]');
-        const remittanceItems = Array.isArray(items) ? items.filter((item) => item.type === '835') : [];
-        if (remittanceItems.length > 0) {
-            return;
+        const metricCards = Array.from(document.querySelectorAll('.glass-card')).slice(0, 3);
+        const tableRows = Array.from(document.querySelectorAll('tbody tr'));
+
+        function activateMetric(card) {
+            metricCards.forEach((item) => {
+                item.classList.remove('ring-2', 'ring-primary/30', '-translate-y-0.5');
+            });
+            card.classList.add('ring-2', 'ring-primary/30', '-translate-y-0.5');
         }
-        const main = document.querySelector('main');
-        if (!main) {
-            return;
-        }
-        main.innerHTML = '<div class="min-h-[70vh] flex items-center justify-center"><div class="bg-white/70 border border-outline-variant/20 rounded-2xl p-10 text-center max-w-xl"><h2 class="text-2xl font-black text-on-surface">No 835 remittance data yet</h2><p class="text-sm text-on-surface-variant mt-3">Upload 835 files from the dashboard. This page will populate after a real upload.</p></div></div>';
+
+        metricCards.forEach((card) => {
+            card.classList.add('cursor-pointer', 'transition-all');
+            card.tabIndex = 0;
+            card.setAttribute('role', 'button');
+            card.setAttribute('aria-label', 'Select remittance metric card');
+            card.addEventListener('click', () => activateMetric(card));
+            card.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    activateMetric(card);
+                }
+            });
+        });
+
+        tableRows.forEach((row) => {
+            row.classList.add('cursor-pointer');
+            row.tabIndex = 0;
+            row.setAttribute('role', 'button');
+            row.addEventListener('click', () => {
+                tableRows.forEach((item) => item.classList.remove('bg-primary/10'));
+                row.classList.add('bg-primary/10');
+            });
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    row.click();
+                }
+            });
+        });
     })();
 </script>
 </body></html>

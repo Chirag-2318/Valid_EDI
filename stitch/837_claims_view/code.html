@@ -469,17 +469,62 @@
 <!-- Suppression logic: Only render FAB on Dashboard/Home. This is an auditing sub-page. -->
 <script>
     (function () {
-        const storageKey = 'ediSubmissions';
-        const items = JSON.parse(localStorage.getItem(storageKey) || '[]');
-        const claimItems = Array.isArray(items) ? items.filter((item) => item.type === '837') : [];
-        if (claimItems.length > 0) {
-            return;
+        const summaryCards = Array.from(document.querySelectorAll('section.grid.grid-cols-1.md\\:grid-cols-3.gap-6.mb-8 > div'));
+        const statusButtons = Array.from(document.querySelectorAll('aside.w-full.lg\\:w-64 .space-y-1 button'));
+        const claimRows = Array.from(document.querySelectorAll('tbody tr'));
+        const claimTypeInputs = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+
+        function activateSingle(elements, target, activeClasses) {
+            elements.forEach((element) => element.classList.remove(...activeClasses));
+            target.classList.add(...activeClasses);
         }
-        const main = document.querySelector('main');
-        if (!main) {
-            return;
-        }
-        main.innerHTML = '<div class="min-h-[70vh] flex items-center justify-center"><div class="bg-white/70 border border-outline-variant/20 rounded-2xl p-10 text-center max-w-xl"><h2 class="text-2xl font-black text-on-surface">No 837 claims data yet</h2><p class="text-sm text-on-surface-variant mt-3">Upload 837 files from the dashboard. This page will populate after a real upload.</p></div></div>';
+
+        summaryCards.forEach((card) => {
+            card.classList.add('cursor-pointer', 'transition-all');
+            card.tabIndex = 0;
+            card.setAttribute('role', 'button');
+            card.addEventListener('click', () => {
+                activateSingle(summaryCards, card, ['ring-2', 'ring-primary/30', '-translate-y-0.5']);
+            });
+            card.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    card.click();
+                }
+            });
+        });
+
+        statusButtons.forEach((button) => {
+            button.classList.add('transition-all');
+            button.addEventListener('click', () => {
+                activateSingle(statusButtons, button, ['bg-primary/10', 'rounded-xl', 'text-primary']);
+            });
+        });
+
+        claimTypeInputs.forEach((input) => {
+            const label = input.closest('label');
+            if (!label) {
+                return;
+            }
+            const sync = () => {
+                label.classList.toggle('ring-2', input.checked);
+                label.classList.toggle('ring-primary/20', input.checked);
+            };
+            sync();
+            input.addEventListener('change', sync);
+        });
+
+        claimRows.forEach((row) => {
+            row.classList.add('cursor-pointer');
+            row.tabIndex = 0;
+            row.setAttribute('role', 'button');
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    row.click();
+                }
+            });
+        });
     })();
 </script>
 </body></html>

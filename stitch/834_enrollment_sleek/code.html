@@ -17,10 +17,16 @@
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
         }
-        /* Custom Scrollbar for sleek look */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 10px; }
+        /* Hide all scrollbars on this page while preserving scroll behavior. */
+        * {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+          width: 0;
+          height: 0;
+          display: none;
+        }
     </style>
 <script id="tailwind-config">
         tailwind.config = {
@@ -87,7 +93,7 @@
         }
     </script>
 </head>
-<body class="bg-surface text-on-surface min-h-screen flex flex-col overflow-hidden">
+<body class="bg-surface text-on-surface min-h-screen flex flex-col overflow-y-auto overflow-x-hidden">
 <!-- TopAppBar Component -->
 <header class="fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl flex justify-between items-center px-6 py-3 shadow-sm dark:shadow-none transition-all duration-200">
 <div class="flex items-center gap-8">
@@ -113,7 +119,7 @@
 </a>
 </div>
 </header>
-<div class="flex flex-1 pt-16 h-screen">
+<div class="flex flex-1 pt-16">
 <!-- SideNavBar Component -->
 <aside class="fixed left-0 top-0 h-full w-64 z-40 bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-2xl border-r border-slate-200/30 dark:border-slate-800/30 shadow-xl dark:shadow-2xl flex flex-col h-full py-6 pt-20">
 <div class="px-6 mb-8 flex items-center gap-3">
@@ -163,9 +169,9 @@
 </div>
 </aside>
 <!-- Main Content Area (Split View) -->
-<main class="ml-64 flex-1 flex bg-surface-container-low overflow-hidden">
+<main class="ml-64 flex-1 flex bg-surface-container-low">
 <!-- Left List Panel -->
-<div class="w-1/3 min-w-[320px] bg-white/40 glass-panel border-r border-outline-variant/10 flex flex-col h-full overflow-hidden">
+<div class="w-1/3 min-w-[320px] bg-white/40 glass-panel border-r border-outline-variant/10 flex flex-col overflow-hidden">
 <div class="p-6 border-b border-outline-variant/5">
 <div class="flex justify-between items-center mb-4">
 <h1 class="text-xl font-bold tracking-tight text-on-surface">Members</h1>
@@ -176,7 +182,7 @@
 <input class="w-full bg-surface-container-lowest border-none rounded-xl py-2 pl-10 pr-4 text-xs focus:ring-2 focus:ring-primary/10 transition-all" placeholder="Filter by name or SSN" type="text"/>
 </div>
 </div>
-<div class="flex-1 overflow-y-auto p-4 space-y-2">
+<div class="flex-1 p-4 space-y-2">
 <!-- Member Card 1 -->
 <div class="p-4 bg-white/80 rounded-2xl shadow-sm border border-transparent hover:border-primary/20 hover:shadow-md cursor-pointer transition-all group" onclick="const members = this.parentElement.children; for(let m of members) { m.classList.remove('bg-primary', 'text-white', 'shadow-xl', 'shadow-primary/20'); m.classList.add('bg-white/80', 'shadow-sm'); if(m.querySelector('.w-10')) { m.querySelector('.w-10').classList.remove('bg-white/20'); m.querySelector('.w-10').classList.add('bg-gradient-to-br', 'from-blue-100', 'to-blue-200'); } }; this.classList.remove('bg-white/80', 'shadow-sm'); this.classList.add('bg-primary', 'text-white', 'shadow-xl', 'shadow-primary/20'); this.querySelector('.w-10').classList.add('bg-white/20');">
 <div class="flex items-start justify-between">
@@ -229,7 +235,7 @@
 </div>
 </div>
 <!-- Right Detail Panel (Large Glassmorphic) -->
-<div class="flex-1 p-8 overflow-y-auto relative">
+<div class="flex-1 p-8 relative">
 <!-- Decorative background elements for glassmorphism bleed -->
 <div class="absolute top-1/4 right-1/4 w-64 h-64 bg-primary/10 blur-[100px] rounded-full -z-10"></div>
 <div class="absolute bottom-1/4 left-1/4 w-96 h-96 bg-tertiary/10 blur-[120px] rounded-full -z-10"></div>
@@ -374,17 +380,69 @@
 </div>
 <script>
   (function () {
-    const storageKey = 'ediSubmissions';
-    const items = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    const enrollmentItems = Array.isArray(items) ? items.filter((item) => item.type === '834') : [];
-    if (enrollmentItems.length > 0) {
-      return;
+    const memberCards = Array.from(document.querySelectorAll('.flex-1.overflow-y-auto.p-4.space-y-2 > div'));
+    const planCards = Array.from(document.querySelectorAll('.col-span-12 .flex-1.bg-surface-container-low'));
+    const employmentRows = Array.from(document.querySelectorAll('.col-span-6 .space-y-4 > div'));
+    const segmentCard = document.querySelector('.col-span-6.bg-slate-900');
+    const segmentLines = segmentCard ? Array.from(segmentCard.querySelectorAll('p')) : [];
+
+    function makeSelectable(elements, activeClasses) {
+      elements.forEach((element) => {
+        element.classList.add('cursor-pointer', 'transition-all');
+        element.tabIndex = 0;
+        element.setAttribute('role', 'button');
+        element.addEventListener('click', () => {
+          elements.forEach((item) => item.classList.remove(...activeClasses));
+          element.classList.add(...activeClasses);
+        });
+        element.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            element.click();
+          }
+        });
+      });
     }
-    const main = document.querySelector('main');
-    if (!main) {
-      return;
-    }
-    main.innerHTML = '<div class="min-h-[70vh] flex items-center justify-center"><div class="bg-white/70 border border-outline-variant/20 rounded-2xl p-10 text-center max-w-xl"><h2 class="text-2xl font-black text-on-surface">No 834 enrollment data yet</h2><p class="text-sm text-on-surface-variant mt-3">Upload 834 files from the dashboard. This page will populate after a real upload.</p></div></div>';
+
+    makeSelectable(memberCards, ['ring-2', 'ring-primary/30']);
+    makeSelectable(planCards, ['ring-2', 'ring-primary/30', '-translate-y-0.5']);
+
+    employmentRows.forEach((row) => {
+      row.classList.add('transition-colors', 'cursor-pointer');
+      row.tabIndex = 0;
+      row.setAttribute('role', 'button');
+      row.addEventListener('click', () => {
+        employmentRows.forEach((item) => item.classList.remove('bg-primary/5'));
+        row.classList.add('bg-primary/5');
+      });
+      row.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          row.click();
+        }
+      });
+    });
+
+    segmentLines.forEach((line) => {
+      line.classList.add('cursor-pointer', 'transition-colors');
+      line.tabIndex = 0;
+      line.setAttribute('role', 'button');
+      line.setAttribute('aria-label', 'Copy EDI segment line');
+      line.addEventListener('click', () => {
+        const rawText = line.textContent ? line.textContent.trim() : '';
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function' && rawText) {
+          navigator.clipboard.writeText(rawText).catch(() => {});
+        }
+        line.classList.add('bg-blue-500/10', 'rounded');
+        window.setTimeout(() => line.classList.remove('bg-blue-500/10', 'rounded'), 450);
+      });
+      line.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          line.click();
+        }
+      });
+    });
   })();
 </script>
 </body></html>

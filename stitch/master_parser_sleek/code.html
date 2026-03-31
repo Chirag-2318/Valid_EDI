@@ -464,17 +464,67 @@
   </script>
   <script>
     (function () {
-      const storageKey = 'ediSubmissions';
-      const items = JSON.parse(localStorage.getItem(storageKey) || '[]');
-      const parsedItems = Array.isArray(items) ? items : [];
-      if (parsedItems.length > 0) {
-        return;
+      const errorLines = Array.from(document.querySelectorAll('.edi-error-squiggle'))
+        .map((node) => node.closest('p'))
+        .filter(Boolean);
+      const logCards = Array.from(document.querySelectorAll('.border-l-4.border-error'));
+      const goButtons = Array.from(document.querySelectorAll('.border-l-4.border-error button'));
+
+      function clearActiveState() {
+        errorLines.forEach((line) => {
+          line.classList.remove('ring-1', 'ring-error/40', 'bg-error/10');
+        });
+        logCards.forEach((card) => {
+          card.classList.remove('ring-2', 'ring-primary/30', 'shadow-md');
+        });
       }
-      const main = document.querySelector('main');
-      if (!main) {
-        return;
+
+      function activatePair(index) {
+        const line = errorLines[index];
+        const card = logCards[index];
+        if (!line || !card) {
+          return;
+        }
+        clearActiveState();
+        line.classList.add('ring-1', 'ring-error/40', 'bg-error/10');
+        card.classList.add('ring-2', 'ring-primary/30', 'shadow-md');
+        line.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-      main.innerHTML = '<div class="min-h-[70vh] flex items-center justify-center"><div class="bg-white/70 border border-outline-variant/20 rounded-2xl p-10 text-center max-w-xl"><h2 class="text-2xl font-black text-on-surface">No parsed file yet</h2><p class="text-sm text-on-surface-variant mt-3">Upload any supported EDI file from the dashboard to see parser output here.</p></div></div>';
+
+      errorLines.forEach((line, index) => {
+        line.classList.add('cursor-pointer', 'transition-colors');
+        line.tabIndex = 0;
+        line.setAttribute('role', 'button');
+        line.setAttribute('aria-label', 'Highlight related validation issue');
+        line.addEventListener('click', () => activatePair(index));
+        line.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            activatePair(index);
+          }
+        });
+      });
+
+      logCards.forEach((card, index) => {
+        card.classList.add('cursor-pointer', 'transition-all');
+        card.tabIndex = 0;
+        card.setAttribute('role', 'button');
+        card.setAttribute('aria-label', 'Jump to related EDI segment');
+        card.addEventListener('click', () => activatePair(index));
+        card.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            activatePair(index);
+          }
+        });
+      });
+
+      goButtons.forEach((button, index) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          activatePair(index);
+        });
+      });
     })();
   </script>
 </body>
