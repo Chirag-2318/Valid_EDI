@@ -21,6 +21,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: 'index.html',
+        login: 'login_sleek_redesign/code.html',
         dashboard: 'dashboard_sleek/code.html',
         master_parser: 'master_parser_sleek/code.html',
         remittance_835: '835_remittance_sleek/code.html',
