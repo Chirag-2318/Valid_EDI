@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+﻿﻿import { useEffect, useState } from 'react';
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary page-remittance';
 
@@ -91,6 +91,33 @@ export function Remittance835Page() {
 
         if (totalEl) totalEl.textContent = remitFiles.length + ' files';
         if (countEl) countEl.textContent = remitFiles.length.toLocaleString();
+
+        const totalPaidEl = document.getElementById('remittance-total-paid');
+        const adjustmentsEl = document.getElementById('remittance-adjustments');
+        const collectionRateEl = document.getElementById('remittance-collection-rate');
+        const periodChangeEl = document.getElementById('remittance-period-change');
+
+        let totalPaid = 0;
+        let totalBilled = 0;
+        for (const file of remitFiles) {
+          try {
+            const pr = await fetch('/api/files/' + file.id + '/parse-result').then(r => r.json());
+            const claims = pr?.raw_json?.structured_data || pr?.raw_json?.json_export?.claims || [];
+            for (const claim of claims) {
+              const charge = parseFloat(claim.total_charge || claim.billed_amount || 0);
+              totalBilled += charge;
+              if (file.is_valid) totalPaid += charge;
+            }
+          } catch(e) { /* skip */ }
+        }
+        const adjustments = totalBilled - totalPaid;
+        const collectionRate = totalBilled > 0 ? Math.round((totalPaid / totalBilled) * 100) : 0;
+        if (totalPaidEl) totalPaidEl.textContent = '$' + totalPaid.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        if (adjustmentsEl) adjustmentsEl.textContent = '$' + adjustments.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        if (collectionRateEl) collectionRateEl.textContent = collectionRate + '% Collection Rate';
+        if (remitFiles.length > 0 && periodChangeEl) {
+          periodChangeEl.textContent = '↑ ' + remitFiles.length + ' file(s) this period';
+        }
 
         if (tbody) {
           if (remitFiles.length === 0) {
@@ -337,7 +364,7 @@ export function Remittance835Page() {
             </div>
             <div className="flex flex-col">
               <span className="text-3xl font-bold tracking-tight"><span id="remittance-total">0 files</span></span>
-              <span className="text-xs text-primary font-medium mt-1">â†‘ 12.4% from last period</span>
+              <span className="text-xs text-primary font-medium mt-1" id="remittance-period-change">-- from last period</span>
             </div>
           </div>
 
@@ -351,8 +378,8 @@ export function Remittance835Page() {
               </div>
             </div>
             <div className="flex flex-col">
-              <span className="text-3xl font-bold tracking-tight">$1,245,670.50</span>
-              <span className="text-xs text-tertiary font-medium mt-1">94% Collection Rate</span>
+              <span className="text-3xl font-bold tracking-tight" id="remittance-total-paid">$0.00</span>
+              <span className="text-xs text-tertiary font-medium mt-1" id="remittance-collection-rate">--</span>
             </div>
           </div>
 
@@ -364,7 +391,7 @@ export function Remittance835Page() {
               </div>
             </div>
             <div className="flex flex-col">
-              <span className="text-3xl font-bold tracking-tight">$237,229.50</span>
+              <span className="text-3xl font-bold tracking-tight" id="remittance-adjustments">$0.00</span>
               <span className="text-xs text-error font-medium mt-1">Rejections optimized (-2.1%)</span>
             </div>
           </div>

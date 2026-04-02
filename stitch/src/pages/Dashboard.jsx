@@ -1,4 +1,4 @@
-﻿import { useEffect } from 'react';
+﻿﻿import { useEffect } from 'react';
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary page-dashboard';
 
@@ -175,6 +175,28 @@ export function DashboardPage() {
         });
     }
 
+    async function hydrateFromAPI() {
+      try {
+        const files = await fetch('/api/files').then(r => r.json());
+        if (!Array.isArray(files)) return;
+        totalProcessed = files.length;
+        totalValid = files.filter(f => f.is_valid).length;
+        const items = files.map(f => ({
+          id: f.id,
+          filename: f.filename || f.original_filename,
+          type: (f.transaction_type || 'unknown').toUpperCase(),
+          errorCount: f.error_count || 0,
+          isValid: f.is_valid || false,
+          timeLabel: f.uploaded_at ? new Date(f.uploaded_at).toLocaleDateString() : 'Unknown'
+        }));
+        writeSubmissions(items);
+        updateSummary();
+        renderAudits(items);
+      } catch(e) {
+        hydrateFromAPI();
+      }
+    }
+
     function hydrateFromStorage() {
       const items = readSubmissions();
       totalProcessed = items.length;
@@ -276,7 +298,7 @@ export function DashboardPage() {
       clearAudits.addEventListener('click', handleClearAudits);
     }
 
-    hydrateFromStorage();
+    hydrateFromAPI();
 
     return () => {
       toggle.removeEventListener('click', handleToggle);

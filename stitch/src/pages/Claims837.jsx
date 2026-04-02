@@ -1,4 +1,4 @@
-﻿import { useEffect } from 'react';
+﻿﻿﻿﻿import { useEffect } from 'react';
 
 const bodyClassName = 'bg-background text-on-surface font-body selection:bg-primary-fixed selection:text-on-primary-fixed page-claims';
 
@@ -46,6 +46,34 @@ export function Claims837Page() {
                 '<td class="px-4 py-2 text-right"><button class="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-primary" type="button" onclick="localStorage.setItem(\'selectedFileId\',\'' + file.id + '\');window.location.href=\'/master_parser_sleek\'"><span class="material-symbols-outlined text-lg">open_in_new</span></button></td>';
               tbody.appendChild(tr);
             });
+          }
+        }
+        const cleanCount = claimFiles.filter(f => f.is_valid).length;
+        const errorCount = claimFiles.filter(f => !f.is_valid).length;
+        const totalBilledEl = document.getElementById('claims-billed-total');
+        const cleanCountEl = document.getElementById('claims-clean-count');
+        const errorCountEl = document.getElementById('claims-error-count');
+        const npiCountEl = document.getElementById('claims-npi-count');
+        if (cleanCountEl) cleanCountEl.textContent = cleanCount;
+        if (errorCountEl) errorCountEl.textContent = errorCount;
+        if (npiCountEl) npiCountEl.textContent = '0';
+        let billedTotal = 0;
+        for (const file of claimFiles) {
+          try {
+            const pr = await fetch('/api/files/' + file.id + '/parse-result').then(r => r.json());
+            const claims = pr?.raw_json?.structured_data || [];
+            for (const claim of claims) {
+              billedTotal += parseFloat(claim.total_charge || 0);
+            }
+          } catch(e) { /* skip */ }
+        }
+        if (totalBilledEl) {
+          if (billedTotal >= 1000000) {
+            totalBilledEl.textContent = '$' + (billedTotal / 1000000).toFixed(1) + 'M';
+          } else if (billedTotal >= 1000) {
+            totalBilledEl.textContent = '$' + (billedTotal / 1000).toFixed(1) + 'K';
+          } else {
+            totalBilledEl.textContent = '$' + billedTotal.toFixed(2);
           }
         }
       } catch (err) {
@@ -330,7 +358,7 @@ export function Claims837Page() {
                 <span className="text-xs font-bold text-slate-400 px-2 py-1">Last 24h</span>
               </div>
               <p className="text-slate-500 text-sm font-medium">Total Billed Amount</p>
-              <h3 className="text-3xl font-black mt-1">$4.2M</h3>
+              <h3 className="text-3xl font-black mt-1"><span id="claims-billed-total">--</span></h3>
               <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-500">
                 <span className="material-symbols-outlined text-9xl">monetization_on</span>
               </div>
@@ -375,19 +403,19 @@ export function Claims837Page() {
                     <span className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-green-500"></span> Clean Claims
                     </span>
-                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded group-hover:bg-primary-fixed">38k</span>
+                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded group-hover:bg-primary-fixed"><span id="claims-clean-count">0</span></span>
                   </button>
                   <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
                     <span className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-error"></span> Missing Fields
                     </span>
-                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">412</span>
+                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded"><span id="claims-error-count">0</span></span>
                   </button>
                   <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
                     <span className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-amber-500"></span> NPI Mismatch
                     </span>
-                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">128</span>
+                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded"><span id="claims-npi-count">0</span></span>
                   </button>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import io
 import json
@@ -27,7 +27,7 @@ from app.services.chat import ask_huggingface
 from app.services.exports import csv_bytes, error_report_pdf_bytes, json_bytes
 from app.services.summaries import build_834_summary, build_835_summary, build_family_grouping
 from app.validation.rules import validate
-from app.routers import upload, files
+from app.routers import upload, files, copilot
 
 app = FastAPI(title="EdiPro Healthcare EDI Parser API", version="1.0.0")
 
@@ -41,6 +41,7 @@ app.add_middleware(
 
 app.include_router(upload.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
+app.include_router(copilot.router, prefix="/api")
 
 STITCH_DIR = Path(__file__).resolve().parents[2] / "stitch"
 if STITCH_DIR.exists():
@@ -259,3 +260,4 @@ def _to_float(value: str) -> float:
         return float(value)
     except ValueError:
         return 0.0
+
