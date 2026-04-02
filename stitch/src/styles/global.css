@@ -1,0 +1,142 @@
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #f9f9fb;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  display: inline-block;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: normal;
+  white-space: nowrap;
+  direction: ltr;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.glass-effect {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.glass-nav {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.glass-blur {
+  backdrop-filter: blur(20px);
+}
+
+.text-glow {
+  text-shadow: 0 0 20px rgba(0, 88, 188, 0.1);
+}
+
+.drag-zone-glow {
+  box-shadow: 0 0 40px -10px rgba(0, 88, 188, 0.15);
+}
+
+.edi-error-squiggle {
+  text-decoration: underline wavy #ba1a1a;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #e2e2e4;
+  border-radius: 10px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.edi-code-block {
+  font-family: 'ui-monospace', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
+  background: #1a1c1d;
+  color: #e2e2e4;
+}
+
+.mask-fade {
+  mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
+}
+
+body.page-login .glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+body.page-dashboard .glass-panel {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+body.page-claims .glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+body.page-enrollment .glass-panel {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+body.page-help-center {
+  background: radial-gradient(circle at top right, #e2dfff 0%, #f9f9fb 40%);
+}
+
+body.page-user-profile {
+  background-color: #f9f9fb;
+  background-image:
+    radial-gradient(at 0% 0%, rgba(0, 88, 188, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(74, 71, 210, 0.05) 0px, transparent 50%);
+}
+
+body.page-enrollment * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+body.page-enrollment *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+body.page-documentation ::-webkit-scrollbar {
+  width: 6px;
+}
+
+body.page-documentation ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body.page-documentation ::-webkit-scrollbar-thumb {
+  background: #e2e2e4;
+  border-radius: 10px;
+}
+
+body.page-documentation ::-webkit-scrollbar-thumb:hover {
+  background: #d9dadc;
+}

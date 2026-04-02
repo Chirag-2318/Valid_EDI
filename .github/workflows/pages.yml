@@ -32,6 +32,10 @@ jobs:
         working-directory: stitch
         run: npm ci
 
+      - name: Run tests
+        working-directory: stitch
+        run: npm run test
+
       - name: Build frontend
         working-directory: stitch
         run: npm run build

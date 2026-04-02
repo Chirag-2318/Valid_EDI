@@ -48,7 +48,13 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Vite
+.vite/
 *.local
+
+# Test outputs
+coverage/
+test-results/
+playwright-report/
 
 # Docker/local data
 docker-data/
