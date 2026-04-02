@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+﻿import { useEffect } from 'react';
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary page-master-parser';
 
@@ -78,89 +78,86 @@ export function MasterParserPage() {
   }, []);
 
   useEffect(() => {
-    const errorLines = Array.from(document.querySelectorAll('.edi-error-squiggle'))
-      .map((node) => node.closest('p'))
-      .filter(Boolean);
-    const logCards = Array.from(document.querySelectorAll('.border-l-4.border-error'));
-    const goButtons = Array.from(document.querySelectorAll('.border-l-4.border-error button'));
+    async function loadFileData() {
+      const ediFilename = document.getElementById('edi-filename');
+      const ediContent = document.getElementById('edi-content');
+      const validationErrorCount = document.getElementById('validation-error-count');
+      const validationLog = document.getElementById('validation-log');
 
-    function clearActiveState() {
-      errorLines.forEach((line) => {
-        line.classList.remove('ring-1', 'ring-error/40', 'bg-error/10');
-      });
-      logCards.forEach((card) => {
-        card.classList.remove('ring-2', 'ring-primary/30', 'shadow-md');
-      });
-    }
+      try {
+        const selectedFileId = localStorage.getItem('selectedFileId');
+        const submissions = JSON.parse(localStorage.getItem('ediSubmissions') || '[]');
+        const latest = submissions.length > 0 ? submissions[submissions.length - 1] : null;
+        const id = selectedFileId || (latest ? latest.id : null);
 
-    function activatePair(index) {
-      const line = errorLines[index];
-      const card = logCards[index];
-      if (!line || !card) {
-        return;
+        if (!id) {
+          if (ediContent) {
+            ediContent.innerHTML = '<p class="text-outline italic">No file selected. Please upload a file from the Dashboard.</p>';
+          }
+          if (ediFilename) ediFilename.textContent = 'No file loaded';
+          return;
+        }
+
+        const [fileInfo, errors, parseResult] = await Promise.all([
+          fetch('/api/files/' + id).then((r) => r.json()),
+          fetch('/api/files/' + id + '/errors').then((r) => r.json()),
+          fetch('/api/files/' + id + '/parse-result').then((r) => r.json()),
+        ]);
+
+        if (ediFilename) {
+          ediFilename.textContent = fileInfo.filename || id;
+        }
+
+        if (ediContent) {
+          const rawJson = parseResult.raw_json || {};
+          const report = rawJson.report || '';
+          const lines = report.split('\n');
+          ediContent.innerHTML = lines
+            .map((line) => '<p>' + (line || '&nbsp;') + '</p>')
+            .join('');
+        }
+
+        if (validationErrorCount) {
+          validationErrorCount.textContent = 'Validation Log (' + errors.length + ' Error' + (errors.length !== 1 ? 's' : '') + ')';
+        }
+
+        if (validationLog) {
+          if (errors.length === 0) {
+            validationLog.innerHTML = '<div class="p-4 bg-white rounded-xl shadow-sm border-l-4 border-green-500 flex items-center gap-4"><span class="material-symbols-outlined text-green-600">check_circle</span><p class="text-sm font-semibold text-green-700">No validation errors found. This file is clean.</p></div>';
+          } else {
+            validationLog.innerHTML = '';
+            errors.forEach((error) => {
+              const card = document.createElement('div');
+              card.className = 'error-card p-4 bg-white rounded-xl shadow-sm border-l-4 ' + (error.severity === 'error' ? 'border-error' : 'border-amber-400') + ' flex items-start justify-between';
+              card.innerHTML =
+                '<div class="flex gap-4">' +
+                '<div class="w-10 h-10 rounded-lg bg-error-container flex items-center justify-center text-error">' +
+                '<span class="material-symbols-outlined">report</span>' +
+                '</div>' +
+                '<div>' +
+                '<h4 class="text-sm font-bold text-on-surface">' + (error.error_code || 'Validation Error') + '</h4>' +
+                '<p class="text-xs text-on-surface-variant mt-1">' + (error.error_message || '') + '</p>' +
+                '<div class="mt-2 flex items-center gap-2">' +
+                (error.loop_id ? '<span class="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">LOOP: ' + error.loop_id + '</span>' : '') +
+                (error.segment ? '<span class="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">SEG: ' + error.segment + '</span>' : '') +
+                '<span class="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded uppercase">' + (error.severity || 'error') + '</span>' +
+                '</div>' +
+                '</div>' +
+                '</div>';
+              validationLog.appendChild(card);
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load EDI file data:', err);
+        const ediContent = document.getElementById('edi-content');
+        if (ediContent) {
+          ediContent.innerHTML = '<p class="text-error italic">Failed to load file data. Please check the server connection.</p>';
+        }
       }
-      clearActiveState();
-      line.classList.add('ring-1', 'ring-error/40', 'bg-error/10');
-      card.classList.add('ring-2', 'ring-primary/30', 'shadow-md');
-      line.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
-    const lineHandlers = errorLines.map((line, index) => {
-      const handleClick = () => activatePair(index);
-      const handleKeydown = (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          activatePair(index);
-        }
-      };
-      line.classList.add('cursor-pointer', 'transition-colors');
-      line.tabIndex = 0;
-      line.setAttribute('role', 'button');
-      line.setAttribute('aria-label', 'Highlight related validation issue');
-      line.addEventListener('click', handleClick);
-      line.addEventListener('keydown', handleKeydown);
-      return { line, handleClick, handleKeydown };
-    });
-
-    const cardHandlers = logCards.map((card, index) => {
-      const handleClick = () => activatePair(index);
-      const handleKeydown = (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          activatePair(index);
-        }
-      };
-      card.classList.add('cursor-pointer', 'transition-all');
-      card.tabIndex = 0;
-      card.setAttribute('role', 'button');
-      card.setAttribute('aria-label', 'Jump to related EDI segment');
-      card.addEventListener('click', handleClick);
-      card.addEventListener('keydown', handleKeydown);
-      return { card, handleClick, handleKeydown };
-    });
-
-    const buttonHandlers = goButtons.map((button, index) => {
-      const handleClick = (event) => {
-        event.preventDefault();
-        activatePair(index);
-      };
-      button.addEventListener('click', handleClick);
-      return { button, handleClick };
-    });
-
-    return () => {
-      lineHandlers.forEach(({ line, handleClick, handleKeydown }) => {
-        line.removeEventListener('click', handleClick);
-        line.removeEventListener('keydown', handleKeydown);
-      });
-      cardHandlers.forEach(({ card, handleClick, handleKeydown }) => {
-        card.removeEventListener('click', handleClick);
-        card.removeEventListener('keydown', handleKeydown);
-      });
-      buttonHandlers.forEach(({ button, handleClick }) => {
-        button.removeEventListener('click', handleClick);
-      });
-    };
+    loadFileData();
   }, []);
 
   return (
@@ -310,8 +307,8 @@ export function MasterParserPage() {
             <div className="flex-[3] border-b border-slate-200/30 flex flex-col min-h-0">
               <div className="px-6 py-3 flex justify-between items-center bg-white/50 border-b border-slate-200/10">
                 <div className="flex items-center gap-3">
-                  <span className="px-2 py-1 bg-surface-container-highest rounded text-[10px] font-mono font-bold text-outline">
-                    FILE: CLAIM_837_v5010.edi
+                  <span id="edi-filename" className="px-2 py-1 bg-surface-container-highest rounded text-[10px] font-mono font-bold text-outline">
+                    Loading...
                   </span>
                   <span className="text-xs text-outline italic">ANSI X12 Standard</span>
                 </div>
@@ -325,28 +322,8 @@ export function MasterParserPage() {
                 </div>
               </div>
               <div className="flex-1 overflow-auto p-6 font-mono text-sm leading-relaxed custom-scrollbar bg-[#fdfdfe]">
-                <div className="flex gap-4">
-                  <div className="text-outline/40 text-right select-none w-8 border-r border-slate-200/50 pr-2">
-                    1
-                    <br />2<br />3<br />4<br />5<br />6<br />7<br />8<br />9<br />10<br />11
-                  </div>
-                  <div className="flex-1">
-                    <p>ISA*00* *00* *ZZ*SUBMITTERID *ZZ*RECEIVERID *231024*1200*^*00501*000000001*0*T*:~</p>
-                    <p>GS*HC*SUBMITTERID*RECEIVERID*20231024*1200*1*X*005010X222A1~</p>
-                    <p>ST*837*0001*005010X222A1~</p>
-                    <p className="bg-error/5 border-l-2 border-error pl-2 -ml-2">
-                      BHT*0019*00*0123*20231024*<span className="edi-error-squiggle">INVALID_TIME</span>*CH~
-                    </p>
-                    <p>NM1*41*1*SMITH*JOHN*L***46*123456789~</p>
-                    <p>PER*IC*JOHN SMITH*TE*8005551212~</p>
-                    <p>NM1*40*2*HEALTHCARE PAYER****46*PAYER001~</p>
-                    <p>HL*1**20*1~</p>
-                    <p>NM1*85*2*PROVIDER GROUP****XX*9876543210~</p>
-                    <p className="bg-error/5 border-l-2 border-error pl-2 -ml-2">
-                      REF*EI*<span className="edi-error-squiggle">AB-12345-X</span>~
-                    </p>
-                    <p>N3*123 MAIN ST~</p>
-                  </div>
+                <div id="edi-content" className="flex-1">
+                  <p className="text-outline italic">Loading file data...</p>
                 </div>
               </div>
             </div>
@@ -357,7 +334,7 @@ export function MasterParserPage() {
                   <span className="material-symbols-outlined text-error" data-icon="report">
                     report
                   </span>
-                  <h3 className="text-sm font-bold tracking-tight">Validation Log (2 Critical Errors)</h3>
+                  <h3 id="validation-error-count" className="text-sm font-bold tracking-tight">Validation Log</h3>
                 </div>
                 <div className="flex gap-2">
                   <span className="px-2 py-0.5 bg-error-container text-on-error-container text-[10px] font-bold rounded-full">
@@ -368,47 +345,8 @@ export function MasterParserPage() {
                   </span>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                <div className="p-4 bg-white rounded-xl shadow-sm border-l-4 border-error flex items-start justify-between">
-                  <div className="flex gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-error-container flex items-center justify-center text-error">
-                      <span className="material-symbols-outlined">event_busy</span>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-on-surface">Invalid BHT05 Value</h4>
-                      <p className="text-xs text-on-surface-variant mt-1">
-                        Transaction Set Purpose Code requires standard HHMM format. Received 'INVALID_TIME'.
-                      </p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">LOOP: 1000A</span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">SEG: BHT</span>
-                      </div>
-                    </div>
-                  </div>
-                  <button className="text-primary text-xs font-bold hover:underline" type="button">
-                    Go to segment
-                  </button>
-                </div>
-                <div className="p-4 bg-white rounded-xl shadow-sm border-l-4 border-error flex items-start justify-between">
-                  <div className="flex gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-error-container flex items-center justify-center text-error">
-                      <span className="material-symbols-outlined">format_list_numbered</span>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-on-surface">REF02 Pattern Mismatch</h4>
-                      <p className="text-xs text-on-surface-variant mt-1">
-                        Tax ID must be 9 numeric digits. Received alphanumeric string 'AB-12345-X'.
-                      </p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">LOOP: 2010AA</span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">SEG: REF</span>
-                      </div>
-                    </div>
-                  </div>
-                  <button className="text-primary text-xs font-bold hover:underline" type="button">
-                    Go to segment
-                  </button>
-                </div>
+              <div id="validation-log" className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                <p className="text-outline italic text-sm">Loading validation results...</p>
               </div>
             </div>
           </section>

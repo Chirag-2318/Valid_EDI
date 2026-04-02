@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+﻿import { useEffect } from 'react';
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary page-dashboard';
 
@@ -164,6 +164,13 @@ export function DashboardPage() {
             ' Errors</span></div><span class="text-[11px] text-outline font-medium italic">' +
             item.timeLabel +
             '</span></div>';
+          if (item.id) {
+            card.style.cursor = 'pointer';
+            card.addEventListener('click', () => {
+              localStorage.setItem('selectedFileId', item.id);
+              window.location.href = '/master_parser_sleek';
+            });
+          }
           recentAudits.appendChild(card);
         });
     }
@@ -198,21 +205,20 @@ export function DashboardPage() {
             throw new Error('Upload failed');
           }
           const payload = await response.json();
-          const report = payload.report || {};
-          const parseResult = report.parse_result || {};
-          const validationResult = report.validation_result || {};
-          const issues = Array.isArray(validationResult.issues) ? validationResult.issues : [];
-          const type = String(parseResult.transaction_type || 'unknown').toUpperCase();
+          const type = String(payload.transaction_type || 'unknown').toUpperCase();
 
           const item = {
-            filename: report.filename || file.name,
+            id: payload.id,
+            filename: payload.filename || file.name,
             type: type,
-            errorCount: issues.length,
+            errorCount: payload.error_count || 0,
+            isValid: payload.is_valid || false,
+            s3_url: payload.s3_url || '',
             timeLabel: 'Just now'
           };
           saved.push(item);
           totalProcessed += 1;
-          if (issues.length === 0) {
+          if (item.errorCount === 0) {
             totalValid += 1;
           }
         } catch (error) {
@@ -568,4 +574,6 @@ export function DashboardPage() {
     </div>
   );
 }
+
+
 

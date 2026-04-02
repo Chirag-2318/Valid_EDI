@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+﻿import { useEffect } from 'react';
 
 const bodyClassName = 'bg-background text-on-surface font-body selection:bg-primary-fixed selection:text-on-primary-fixed page-claims';
 
@@ -12,6 +12,48 @@ export function Claims837Page() {
     };
   }, []);
 
+  useEffect(() => {
+    async function loadClaimsData() {
+      try {
+        const files = await fetch('/api/files').then((r) => r.json());
+        const claimFiles = Array.isArray(files) ? files.filter((f) => f.transaction_type === '837p' || f.transaction_type === '837i') : [];
+
+        const tbody = document.getElementById('claims-tbody');
+        const totalEl = document.getElementById('claims-total');
+        const errorsEl = document.getElementById('claims-errors');
+
+        if (totalEl) totalEl.textContent = claimFiles.length.toLocaleString();
+        if (errorsEl) errorsEl.textContent = claimFiles.filter((f) => !f.is_valid).length.toLocaleString();
+
+        if (tbody) {
+          if (claimFiles.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-sm text-slate-400 italic">No 837 claim files uploaded yet. Upload files from the Dashboard.</td></tr>';
+          } else {
+            tbody.innerHTML = '';
+            claimFiles.forEach((file) => {
+              const tr = document.createElement('tr');
+              tr.className = 'hover:bg-primary/5 transition-colors group';
+              const statusClass = file.is_valid ? 'bg-green-100 text-green-700 border-green-200/50' : 'bg-error-container/30 text-error border-error/10';
+              const statusText = file.is_valid ? 'Clean' : 'Error';
+              const statusDot = file.is_valid ? 'bg-green-500' : 'bg-error';
+              tr.innerHTML =
+                '<td class="px-4 py-2 text-xs font-bold text-slate-900">' + file.filename + '</td>' +
+                '<td class="px-4 py-2"><div class="flex flex-col"><span class="text-xs font-semibold text-slate-700">' + (file.transaction_type || '').toUpperCase() + '</span></div></td>' +
+                '<td class="px-4 py-2 text-xs text-slate-600">' + (file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '-') + '</td>' +
+                '<td class="px-4 py-2 text-xs font-bold text-slate-900 text-right">' + file.error_count + ' errors</td>' +
+                '<td class="px-4 py-2 text-center"><span class="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">' + (file.warning_count || 0) + ' warn</span></td>' +
+                '<td class="px-4 py-2"><span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ' + statusClass + ' border"><span class="w-1.5 h-1.5 rounded-full ' + statusDot + '"></span> ' + statusText + '</span></td>' +
+                '<td class="px-4 py-2 text-right"><button class="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-primary" type="button" onclick="localStorage.setItem(\'selectedFileId\',\'' + file.id + '\');window.location.href=\'/master_parser_sleek\'"><span class="material-symbols-outlined text-lg">open_in_new</span></button></td>';
+              tbody.appendChild(tr);
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load claims data:', err);
+      }
+    }
+    loadClaimsData();
+  }, []);
   useEffect(() => {
     const summaryCards = Array.from(
       document.querySelectorAll('section.grid.grid-cols-1.md\\:grid-cols-3.gap-6.mb-8 > div')
@@ -274,7 +316,7 @@ export function Claims837Page() {
                 </span>
               </div>
               <p className="text-slate-500 text-sm font-medium">Total Claims Audited</p>
-              <h3 className="text-3xl font-black mt-1">42,891</h3>
+              <h3 className="text-3xl font-black mt-1"><span id="claims-total">0</span></h3>
               <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-500">
                 <span className="material-symbols-outlined text-9xl">receipt_long</span>
               </div>
@@ -304,7 +346,7 @@ export function Claims837Page() {
                 </span>
               </div>
               <p className="text-slate-500 text-sm font-medium">Validation Errors</p>
-              <h3 className="text-3xl font-black mt-1">1,029</h3>
+              <h3 className="text-3xl font-black mt-1"><span id="claims-errors">0</span></h3>
               <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-500">
                 <span className="material-symbols-outlined text-9xl">bug_report</span>
               </div>
@@ -397,7 +439,7 @@ export function Claims837Page() {
                         <th className="px-4 py-3 border-b border-outline-variant/10"></th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-outline-variant/5">
+                    <tbody id="claims-tbody" className="divide-y divide-outline-variant/5">
                       <tr className="hover:bg-primary/5 transition-colors group">
                         <td className="px-4 py-2 text-xs font-bold text-slate-900">#CLM-29384-01</td>
                         <td className="px-4 py-2">
@@ -604,4 +646,5 @@ export function Claims837Page() {
     </>
   );
 }
+
 

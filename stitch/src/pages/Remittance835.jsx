@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary page-remittance';
 
@@ -79,6 +79,47 @@ export function Remittance835Page() {
     };
   }, []);
 
+  useEffect(() => {
+    async function loadRemittanceData() {
+      try {
+        const files = await fetch('/api/files').then((r) => r.json());
+        const remitFiles = Array.isArray(files) ? files.filter((f) => f.transaction_type === '835') : [];
+
+        const tbody = document.getElementById('remittance-tbody');
+        const totalEl = document.getElementById('remittance-total');
+        const countEl = document.getElementById('remittance-count');
+
+        if (totalEl) totalEl.textContent = remitFiles.length + ' files';
+        if (countEl) countEl.textContent = remitFiles.length.toLocaleString();
+
+        if (tbody) {
+          if (remitFiles.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-8 text-center text-sm text-slate-400 italic">No 835 remittance files uploaded yet. Upload files from the Dashboard.</td></tr>';
+          } else {
+            tbody.innerHTML = '';
+            remitFiles.forEach((file) => {
+              const tr = document.createElement('tr');
+              tr.className = 'hover:bg-primary/5 transition-colors group';
+              const statusClass = file.is_valid ? 'bg-[#E6F4EA] text-[#1E7E34]' : 'bg-[#FCE8E8] text-[#D32F2F]';
+              const statusText = file.is_valid ? 'Valid' : 'Error';
+              tr.innerHTML =
+                '<td class="px-6 py-4"><div class="flex flex-col"><span class="text-sm font-bold text-on-surface">' + file.filename + '</span><span class="text-[10px] text-on-surface-variant font-medium tracking-tight">ID: ' + file.id.substring(0, 8) + '...</span></div></td>' +
+                '<td class="px-6 py-4"><span class="text-sm font-medium">' + (file.transaction_type || '').toUpperCase() + '</span></td>' +
+                '<td class="px-6 py-4 text-right"><span class="text-sm font-medium">' + file.error_count + ' errors</span></td>' +
+                '<td class="px-6 py-4 text-right"><span class="text-sm font-bold text-primary">' + (file.warning_count || 0) + ' warnings</span></td>' +
+                '<td class="px-6 py-4"><span class="text-sm text-on-surface-variant">' + (file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '-') + '</span></td>' +
+                '<td class="px-6 py-4"><span class="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ' + statusClass + '">' + statusText + '</span></td>' +
+                '<td class="px-6 py-4 text-right"><button class="opacity-0 group-hover:opacity-100 p-2 hover:bg-primary/10 rounded-lg text-primary transition-all" type="button" onclick="localStorage.setItem(\'selectedFileId\',\'' + file.id + '\');window.location.href=\'/master_parser_sleek\'"><span class="material-symbols-outlined text-sm">chevron_right</span></button></td>';
+              tbody.appendChild(tr);
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load remittance data:', err);
+      }
+    }
+    loadRemittanceData();
+  }, []);
   useEffect(() => {
     const metricCards = Array.from(document.querySelectorAll('.glass-card')).slice(0, 3);
     const tableRows = Array.from(document.querySelectorAll('tbody tr'));
@@ -295,8 +336,8 @@ export function Remittance835Page() {
               </div>
             </div>
             <div className="flex flex-col">
-              <span className="text-3xl font-bold tracking-tight">$1,482,900.00</span>
-              <span className="text-xs text-primary font-medium mt-1">↑ 12.4% from last period</span>
+              <span className="text-3xl font-bold tracking-tight"><span id="remittance-total">0 files</span></span>
+              <span className="text-xs text-primary font-medium mt-1">â†‘ 12.4% from last period</span>
             </div>
           </div>
 
@@ -368,7 +409,7 @@ export function Remittance835Page() {
                   <th className="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-outline-variant/10">
+              <tbody id="remittance-tbody" className="divide-y divide-outline-variant/10">
                 <tr className="hover:bg-primary/5 transition-colors group">
                   <td className="px-6 py-4">
                     <div className="flex flex-col">
@@ -526,7 +567,7 @@ export function Remittance835Page() {
           </div>
 
           <div className="px-6 py-4 bg-surface-container-low/20 flex items-center justify-between">
-            <span className="text-xs text-on-surface-variant font-medium">Showing 1-10 of 835 records</span>
+            <span className="text-xs text-on-surface-variant font-medium"><span id="remittance-count">0</span> records loaded</span>
             <div className="flex gap-2">
               <button className="px-3 py-1.5 bg-white border border-outline-variant/10 rounded-lg text-xs font-semibold shadow-sm hover:bg-surface-container-low transition-all" type="button">
                 Previous
@@ -572,4 +613,5 @@ export function Remittance835Page() {
     </>
   );
 }
+
 

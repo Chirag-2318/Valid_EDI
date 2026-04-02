@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+﻿import { useEffect } from 'react';
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary page-enrollment';
 
@@ -12,6 +12,52 @@ export function Enrollment834Page() {
     };
   }, []);
 
+  useEffect(() => {
+    async function loadEnrollmentData() {
+      try {
+        const files = await fetch('/api/files').then((r) => r.json());
+        const enrollFiles = Array.isArray(files) ? files.filter((f) => f.transaction_type === '834') : [];
+
+        const memberList = document.getElementById('enrollment-member-list');
+        const countEl = document.getElementById('enrollment-count');
+        const statusEl = document.getElementById('enrollment-status');
+
+        if (countEl) countEl.textContent = enrollFiles.length;
+        if (statusEl) statusEl.textContent = enrollFiles.length > 0 ? 'ACTIVE BATCH' : 'NO FILES';
+
+        if (memberList) {
+          if (enrollFiles.length === 0) {
+            memberList.innerHTML = '<div class="p-4 text-center text-sm text-slate-400 italic">No 834 enrollment files uploaded yet. Upload files from the Dashboard.</div>';
+          } else {
+            memberList.innerHTML = '';
+            enrollFiles.forEach((file) => {
+              const card = document.createElement('div');
+              card.className = 'p-4 bg-white/80 rounded-2xl shadow-sm border border-transparent hover:border-primary/20 hover:shadow-md cursor-pointer transition-all group';
+              const initials = file.filename.substring(0, 2).toUpperCase();
+              const statusBadge = file.is_valid
+                ? '<span class="bg-green-100 text-green-700 text-[9px] font-extrabold px-1.5 py-0.5 rounded tracking-tighter uppercase">Valid</span>'
+                : '<span class="bg-red-100 text-error text-[9px] font-extrabold px-1.5 py-0.5 rounded tracking-tighter uppercase">Error</span>';
+              card.innerHTML =
+                '<div class="flex items-start justify-between">' +
+                '<div class="flex items-center gap-3">' +
+                '<div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center text-primary font-bold text-sm">' + initials + '</div>' +
+                '<div><p class="font-bold text-sm text-on-surface group-hover:text-primary transition-colors">' + file.filename + '</p>' +
+                '<p class="text-[10px] text-slate-500 font-mono tracking-tight">' + file.error_count + ' errors • ' + (file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '') + '</p></div>' +
+                '</div>' + statusBadge + '</div>';
+              card.addEventListener('click', () => {
+                localStorage.setItem('selectedFileId', file.id);
+                window.location.href = '/master_parser_sleek';
+              });
+              memberList.appendChild(card);
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load enrollment data:', err);
+      }
+    }
+    loadEnrollmentData();
+  }, []);
   useEffect(() => {
     const memberCards = Array.from(document.querySelectorAll('.flex-1.overflow-y-auto.p-4.space-y-2 > div'));
     const planCards = Array.from(document.querySelectorAll('.col-span-12 .flex-1.bg-surface-container-low'));
@@ -254,7 +300,7 @@ export function Enrollment834Page() {
             <div className="p-6 border-b border-outline-variant/5">
               <div className="flex justify-between items-center mb-4">
                 <h1 className="text-xl font-bold tracking-tight text-on-surface">Members</h1>
-                <span className="bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 rounded-full">ACTIVE BATCH</span>
+                <span className="bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 rounded-full"><span id="enrollment-status">ACTIVE BATCH</span></span>
               </div>
               <div className="relative">
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">filter_list</span>
@@ -265,7 +311,7 @@ export function Enrollment834Page() {
                 />
               </div>
             </div>
-            <div className="flex-1 p-4 space-y-2">
+            <div id="enrollment-member-list" className="flex-1 p-4 space-y-2">
               <div
                 className="p-4 bg-white/80 rounded-2xl shadow-sm border border-transparent hover:border-primary/20 hover:shadow-md cursor-pointer transition-all group"
                 onClick={handleMemberCardPrimary}
@@ -333,7 +379,7 @@ export function Enrollment834Page() {
                     <h2 className="text-3xl font-extrabold tracking-tight text-on-surface">Avery Williams</h2>
                     <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-widest">Update</span>
                   </div>
-                  <p className="text-slate-500 font-medium">Effective Date: Jan 01, 2024 • Transaction ID: 834-002931-X</p>
+                  <p className="text-slate-500 font-medium">Effective Date: Jan 01, 2024 â€¢ Transaction ID: 834-002931-X</p>
                 </div>
                 <div className="flex gap-3">
                   <button
@@ -368,7 +414,7 @@ export function Enrollment834Page() {
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Gender / DOB</p>
-                      <p className="font-semibold text-on-surface">Non-Binary • 05/12/1988</p>
+                      <p className="font-semibold text-on-surface">Non-Binary â€¢ 05/12/1988</p>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Primary Address</p>
@@ -508,4 +554,5 @@ export function Enrollment834Page() {
     </div>
   );
 }
+
 
