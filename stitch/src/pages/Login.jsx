@@ -110,7 +110,7 @@ export function LoginPage() {
                 type="submit"
               >
                 Sign In
-                <span className="material-symbols-outlined text-lg">arrow_forward</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-lg">arrow_forward</span>
               </button>
               <div className="relative py-2">
                 <div className="absolute inset-0 flex items-center">

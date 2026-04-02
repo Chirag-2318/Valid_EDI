@@ -12,6 +12,6 @@ describe('LoginPage', () => {
     );
 
     expect(screen.getByRole('heading', { name: /EdiPro/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Sign In/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Sign In$/i })).toBeInTheDocument();
   });
 });
