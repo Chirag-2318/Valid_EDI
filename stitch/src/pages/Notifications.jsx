@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../auth/AuthProvider';
+import { canAny, CLAIMS_ACCESS_PERMISSIONS } from '../auth/permissions';
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary min-h-screen page-notifications';
 
 const filterKeys = ['all', 'critical', 'warnings', 'success'];
 
 export function NotificationsPage() {
+  const { permissions } = useAuth();
+  const canClaims = canAny(permissions, CLAIMS_ACCESS_PERMISSIONS);
   const [activeFilter, setActiveFilter] = useState('all');
   const [hiddenIds, setHiddenIds] = useState(() => new Set());
 
@@ -182,9 +186,11 @@ export function NotificationsPage() {
             <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/dashboard_sleek">
               Dashboard
             </a>
-            <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/837_claims_view">
-              Reports
-            </a>
+            {canClaims ? (
+              <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/837_claims_view">
+                Reports
+              </a>
+            ) : null}
           </nav>
         </div>
         <div className="flex items-center gap-3">

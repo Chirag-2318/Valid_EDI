@@ -1,6 +1,7 @@
 # OS and editor
 .DS_Store
 Thumbs.db
+.kiro/
 .vscode/
 .idea/
 
@@ -35,10 +36,17 @@ dist/
 site/
 *.log
 
-# Environment files
-.env
-.env.*
-!.env.example
+# Project-specific data and docs
+*.edi
+*.x12
+*.837
+*.835
+*.834
+global-bundle.pem
+clear_db.py
+check_rds.py
+*.md
+!V0.3.1_LLM_IMPLEMENTATION_GUIDE.md
 
 # Node / frontend
 node_modules/

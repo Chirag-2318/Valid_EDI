@@ -10,6 +10,12 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.auth.firebase_auth import (
+    UserContext,
+    ensure_edit_for_transaction,
+    ensure_view_for_transaction,
+    get_current_user,
+)
 from app.database import get_db
 from app.db_models import EDIFile, ParseResult, ValidationErrorDB
 from app.services.chat import ask_huggingface
@@ -31,11 +37,12 @@ class FixRequest(BaseModel):
     suggested_value: str = ""
 
 
-async def _fetch_context(file_id: str, db: AsyncSession) -> dict:
+async def _fetch_context(file_id: str, db: AsyncSession, user: UserContext) -> dict:
     fid = UUID(file_id)
     file_row = (await db.execute(select(EDIFile).where(EDIFile.id == fid))).scalar_one_or_none()
     if not file_row:
         raise HTTPException(status_code=404, detail="File not found")
+    ensure_view_for_transaction(user, file_row.transaction_type)
     parse_row = (await db.execute(select(ParseResult).where(ParseResult.file_id == fid))).scalar_one_or_none()
     errors = (await db.execute(select(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))).scalars().all()
     raw_json = parse_row.raw_json or {} if parse_row else {}
@@ -75,8 +82,12 @@ def _rule_based_analysis(ctx: dict) -> dict:
 
 
 @router.post("/copilot/analyze")
-async def analyze_file(req: AnalyzeRequest, db: AsyncSession = Depends(get_db)):
-    ctx = await _fetch_context(req.file_id, db)
+async def analyze_file(
+    req: AnalyzeRequest,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(get_current_user),
+):
+    ctx = await _fetch_context(req.file_id, db, user)
     question = (
         "Analyze this EDI file and respond in JSON only with these keys: "
         "bullets (array of 3 strings about file structure and health), "
@@ -97,8 +108,12 @@ async def analyze_file(req: AnalyzeRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/copilot/chat")
-async def chat_with_copilot(req: ChatRequest, db: AsyncSession = Depends(get_db)):
-    ctx = await _fetch_context(req.file_id, db)
+async def chat_with_copilot(
+    req: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(get_current_user),
+):
+    ctx = await _fetch_context(req.file_id, db, user)
     history_str = ""
     for msg in req.history[-6:]:
         history_str += f"\n{msg.get('role','user').upper()}: {msg.get('content','')}"
@@ -108,8 +123,16 @@ async def chat_with_copilot(req: ChatRequest, db: AsyncSession = Depends(get_db)
 
 
 @router.post("/copilot/fix")
-async def apply_fix(req: FixRequest, db: AsyncSession = Depends(get_db)):
+async def apply_fix(
+    req: FixRequest,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(get_current_user),
+):
     fid = UUID(req.file_id)
+    file_row = (await db.execute(select(EDIFile).where(EDIFile.id == fid))).scalar_one_or_none()
+    if not file_row:
+        raise HTTPException(status_code=404, detail="File not found")
+    ensure_edit_for_transaction(user, file_row.transaction_type)
     parse_row = (await db.execute(select(ParseResult).where(ParseResult.file_id == fid))).scalar_one_or_none()
     if not parse_row:
         raise HTTPException(status_code=404, detail="Parse result not found")

@@ -1,4 +1,13 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { RequireAuth, RequirePermission } from './auth/RouteGuards';
+import {
+  ADMIN_PERMISSIONS,
+  ANY_EDI_VIEW_PERMISSIONS,
+  CLAIMS_ACCESS_PERMISSIONS,
+  ENROLLMENT_ACCESS_PERMISSIONS,
+  REMITTANCE_ACCESS_PERMISSIONS
+} from './auth/permissions';
+import { AdminUsersPage } from './pages/AdminUsers';
 import { Claims837Page } from './pages/Claims837';
 import { DashboardPage } from './pages/Dashboard';
 import { DocumentationPage } from './pages/Documentation';
@@ -18,16 +27,94 @@ export function App() {
         <Route path="/" element={<LoginPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/login_sleek_redesign" element={<LoginPage />} />
-        <Route path="/dashboard_sleek" element={<DashboardPage />} />
-        <Route path="/master_parser_sleek" element={<MasterParserPage />} />
-        <Route path="/835_remittance_sleek" element={<Remittance835Page />} />
-        <Route path="/834_enrollment_sleek" element={<Enrollment834Page />} />
-        <Route path="/837_claims_view" element={<Claims837Page />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/user_profile" element={<UserProfilePage />} />
-        <Route path="/documentation" element={<DocumentationPage />} />
-        <Route path="/help_center" element={<HelpCenterPage />} />
+        <Route
+          path="/dashboard_sleek"
+          element={(
+            <RequireAuth>
+              <DashboardPage />
+            </RequireAuth>
+          )}
+        />
+        <Route
+          path="/master_parser_sleek"
+          element={(
+            <RequirePermission required={ANY_EDI_VIEW_PERMISSIONS}>
+              <MasterParserPage />
+            </RequirePermission>
+          )}
+        />
+        <Route
+          path="/835_remittance_sleek"
+          element={(
+            <RequirePermission required={REMITTANCE_ACCESS_PERMISSIONS}>
+              <Remittance835Page />
+            </RequirePermission>
+          )}
+        />
+        <Route
+          path="/834_enrollment_sleek"
+          element={(
+            <RequirePermission required={ENROLLMENT_ACCESS_PERMISSIONS}>
+              <Enrollment834Page />
+            </RequirePermission>
+          )}
+        />
+        <Route
+          path="/837_claims_view"
+          element={(
+            <RequirePermission required={CLAIMS_ACCESS_PERMISSIONS}>
+              <Claims837Page />
+            </RequirePermission>
+          )}
+        />
+        <Route
+          path="/notifications"
+          element={(
+            <RequireAuth>
+              <NotificationsPage />
+            </RequireAuth>
+          )}
+        />
+        <Route
+          path="/settings"
+          element={(
+            <RequireAuth>
+              <SettingsPage />
+            </RequireAuth>
+          )}
+        />
+        <Route
+          path="/admin/users"
+          element={(
+            <RequirePermission required={ADMIN_PERMISSIONS}>
+              <AdminUsersPage />
+            </RequirePermission>
+          )}
+        />
+        <Route
+          path="/user_profile"
+          element={(
+            <RequireAuth>
+              <UserProfilePage />
+            </RequireAuth>
+          )}
+        />
+        <Route
+          path="/documentation"
+          element={(
+            <RequireAuth>
+              <DocumentationPage />
+            </RequireAuth>
+          )}
+        />
+        <Route
+          path="/help_center"
+          element={(
+            <RequireAuth>
+              <HelpCenterPage />
+            </RequireAuth>
+          )}
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

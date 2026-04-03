@@ -1,8 +1,12 @@
 import { useEffect } from 'react';
+import { useAuth } from '../auth/AuthProvider';
+import { canAny, CLAIMS_ACCESS_PERMISSIONS } from '../auth/permissions';
 
 const bodyClassName = 'bg-background text-on-surface min-h-screen page-help-center';
 
 export function HelpCenterPage() {
+  const { permissions } = useAuth();
+  const canClaims = canAny(permissions, CLAIMS_ACCESS_PERMISSIONS);
   useEffect(() => {
     const previous = document.body.className;
     document.body.className = bodyClassName;
@@ -24,12 +28,14 @@ export function HelpCenterPage() {
             >
               Dashboard
             </a>
-            <a
-              className="font-sans tracking-tight text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors px-3 py-1.5 rounded-lg"
-              href="/837_claims_view"
-            >
-              Reports
-            </a>
+            {canClaims ? (
+              <a
+                className="font-sans tracking-tight text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors px-3 py-1.5 rounded-lg"
+                href="/837_claims_view"
+              >
+                Reports
+              </a>
+            ) : null}
           </nav>
         </div>
         <div className="flex items-center gap-3">

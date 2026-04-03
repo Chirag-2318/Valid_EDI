@@ -1,8 +1,20 @@
 ﻿import { useEffect, useState } from 'react';
+import { authFetch } from '../auth/api';
+import { useAuth } from '../auth/AuthProvider';
+import {
+  canAny,
+  CLAIMS_ACCESS_PERMISSIONS,
+  ENROLLMENT_ACCESS_PERMISSIONS,
+  REMITTANCE_ACCESS_PERMISSIONS
+} from '../auth/permissions';
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary page-master-parser';
 
 export function MasterParserPage() {
+  const { permissions } = useAuth();
+  const canClaims = canAny(permissions, CLAIMS_ACCESS_PERMISSIONS);
+  const canEnrollment = canAny(permissions, ENROLLMENT_ACCESS_PERMISSIONS);
+  const canRemittance = canAny(permissions, REMITTANCE_ACCESS_PERMISSIONS);
   const [copilotData, setCopilotData] = useState(null);
   const [copilotLoading, setCopilotLoading] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
@@ -15,7 +27,7 @@ export function MasterParserPage() {
     if (!fileId) return;
     setCopilotLoading(true);
     try {
-      const res = await fetch('/api/copilot/analyze', {
+      const res = await authFetch('/api/copilot/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ file_id: fileId }),
@@ -37,7 +49,7 @@ export function MasterParserPage() {
     setChatInput('');
     setChatLoading(true);
     try {
-      const res = await fetch('/api/copilot/chat', {
+      const res = await authFetch('/api/copilot/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ file_id: currentFileId, question: chatInput, history: chatMessages }),
@@ -55,20 +67,20 @@ export function MasterParserPage() {
     if (!currentFileId) return;
     setFixLoading(true);
     try {
-      const res = await fetch('/api/copilot/fix', {
+      const res = await authFetch('/api/copilot/fix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ file_id: currentFileId, fix_type: fixType, suggested_value: suggestedValue }),
       });
       const data = await res.json();
       if (data.success) {
-        const parseResult = await fetch('/api/files/' + currentFileId + '/parse-result').then((r) => r.json());
+        const parseResult = await authFetch('/api/files/' + currentFileId + '/parse-result').then((r) => r.json());
         const contentEl = document.getElementById('edi-content');
         if (contentEl && parseResult.raw_json && parseResult.raw_json.report) {
           const lines = parseResult.raw_json.report.split('\n');
           contentEl.innerHTML = lines.map((line) => '<p>' + (line || '&nbsp;') + '</p>').join('');
         }
-        const errorsRes = await fetch('/api/files/' + currentFileId + '/errors').then((r) => r.json());
+        const errorsRes = await authFetch('/api/files/' + currentFileId + '/errors').then((r) => r.json());
         const countEl = document.getElementById('validation-error-count');
         const logEl = document.getElementById('validation-log');
         if (countEl) countEl.textContent = 'Validation Log (' + errorsRes.length + ' Error' + (errorsRes.length !== 1 ? 's' : '') + ')';
@@ -141,9 +153,9 @@ export function MasterParserPage() {
           return;
         }
         const [fileInfo, errors, parseResult] = await Promise.all([
-          fetch('/api/files/' + id).then((r) => r.json()),
-          fetch('/api/files/' + id + '/errors').then((r) => r.json()),
-          fetch('/api/files/' + id + '/parse-result').then((r) => r.json()),
+          authFetch('/api/files/' + id).then((r) => r.json()),
+          authFetch('/api/files/' + id + '/errors').then((r) => r.json()),
+          authFetch('/api/files/' + id + '/parse-result').then((r) => r.json())
         ]);
         if (ediFilename) ediFilename.textContent = fileInfo.filename || id;
         if (ediContent) {
@@ -185,7 +197,9 @@ export function MasterParserPage() {
           <nav className="hidden md:flex gap-6">
             <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/dashboard_sleek">Dashboard</a>
             <a className="text-blue-700 dark:text-blue-400 font-semibold border-b-2 border-blue-700 py-1 transition-all" href="/master_parser_sleek">Master Parser</a>
-            <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/837_claims_view">Reports</a>
+            {canClaims ? (
+              <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/837_claims_view">Reports</a>
+            ) : null}
           </nav>
         </div>
         <div className="flex items-center gap-3">
@@ -222,9 +236,15 @@ export function MasterParserPage() {
         <nav className="flex-1 px-2 space-y-1">
           <a className="text-slate-600 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium hover:translate-x-1 transition-transform duration-300" href="/dashboard_sleek" data-nav-link="true"><span className="material-symbols-outlined">dashboard</span> Dashboard</a>
           <a className="bg-blue-50/50 text-blue-700 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 text-sm font-medium" href="/master_parser_sleek" data-nav-link="true"><span className="material-symbols-outlined">analytics</span> Master Parser</a>
-          <a className="text-slate-600 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium hover:translate-x-1 transition-transform duration-300" href="/835_remittance_sleek" data-nav-link="true"><span className="material-symbols-outlined">payments</span> 835 Remittance</a>
-          <a className="text-slate-600 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium hover:translate-x-1 transition-transform duration-300" href="/834_enrollment_sleek" data-nav-link="true"><span className="material-symbols-outlined">group_add</span> 834 Enrollment</a>
-          <a className="text-slate-600 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium hover:translate-x-1 transition-transform duration-300" href="/837_claims_view" data-nav-link="true"><span className="material-symbols-outlined">description</span> 837 Claims</a>
+          {canRemittance ? (
+            <a className="text-slate-600 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium hover:translate-x-1 transition-transform duration-300" href="/835_remittance_sleek" data-nav-link="true"><span className="material-symbols-outlined">payments</span> 835 Remittance</a>
+          ) : null}
+          {canEnrollment ? (
+            <a className="text-slate-600 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium hover:translate-x-1 transition-transform duration-300" href="/834_enrollment_sleek" data-nav-link="true"><span className="material-symbols-outlined">group_add</span> 834 Enrollment</a>
+          ) : null}
+          {canClaims ? (
+            <a className="text-slate-600 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium hover:translate-x-1 transition-transform duration-300" href="/837_claims_view" data-nav-link="true"><span className="material-symbols-outlined">description</span> 837 Claims</a>
+          ) : null}
         </nav>
         <div className="mt-auto px-4 pb-4">
           <button className="w-full bg-primary text-white rounded-xl py-3 text-sm font-bold shadow-lg shadow-primary/20 flex items-center justify-center gap-2" onClick={() => console.log('New Submission')} type="button">

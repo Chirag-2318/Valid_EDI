@@ -1,8 +1,15 @@
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/AuthProvider';
+import { ADMIN_PERMISSIONS, canAny, CLAIMS_ACCESS_PERMISSIONS } from '../auth/permissions';
 
 const bodyClassName = 'bg-background text-on-surface page-settings';
 
 export function SettingsPage() {
+  const navigate = useNavigate();
+  const { permissions, logout, user } = useAuth();
+  const canClaims = canAny(permissions, CLAIMS_ACCESS_PERMISSIONS);
+  const isAdmin = canAny(permissions, ADMIN_PERMISSIONS);
   useEffect(() => {
     const previous = document.body.className;
     document.body.className = bodyClassName;
@@ -24,12 +31,14 @@ export function SettingsPage() {
             >
               Dashboard
             </a>
-            <a
-              className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 font-sans tracking-tight text-sm font-medium transition-colors"
-              href="/837_claims_view"
-            >
-              Reports
-            </a>
+            {canClaims ? (
+              <a
+                className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 font-sans tracking-tight text-sm font-medium transition-colors"
+                href="/837_claims_view"
+              >
+                Reports
+              </a>
+            ) : null}
           </nav>
         </div>
         <div className="flex items-center gap-4">
@@ -55,6 +64,16 @@ export function SettingsPage() {
               src="https://lh3.googleusercontent.com/aida-public/AB6AXuBxTlDu_54CZiSUYBInk-l2uNP22WfFO9hfxJDhJf9V97Vv-bVMt13cECZX9tiurQ4tg6QO-WfBCbLk4WJiRi7JM20REP1s8nWXkyvtNX3wIeS-DP1rmr6Ugix8FOM4U5_sMTNr-IQHJ9jgOnXvbihrXzwOfGpohIsm1n7WXFMT85IAGzK2sSFBkrRCqtkoL3sw4XqkGNVHuFJfFH5sH9WotL0qDOkwxrZGkSL9_oVp9V_PFGWmFTlGLz6WV2lJgFoEfgvlEOUqVh9w"
             />
           </a>
+          <button
+            className="px-3 py-2 text-xs font-bold uppercase tracking-widest text-primary border border-primary/30 rounded-lg hover:bg-primary/10 transition-colors"
+            onClick={async () => {
+              await logout();
+              navigate('/login');
+            }}
+            type="button"
+          >
+            Sign Out
+          </button>
         </div>
       </header>
 
@@ -79,10 +98,15 @@ export function SettingsPage() {
                 <span className="material-symbols-outlined text-[20px]">palette</span>
                 <span className="text-sm">Appearance</span>
               </button>
-              <button className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-200/30 dark:hover:bg-slate-800/30 rounded-lg font-medium transition-transform duration-200 hover:scale-[1.02]" type="button">
-                <span className="material-symbols-outlined text-[20px]">group</span>
-                <span className="text-sm">User Management</span>
-              </button>
+              {isAdmin ? (
+                <a
+                  className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 dark:text-slate-200 hover:bg-slate-200/30 dark:hover:bg-slate-800/30 rounded-lg font-medium transition-transform duration-200 hover:scale-[1.02]"
+                  href="/admin/users"
+                >
+                  <span className="material-symbols-outlined text-[20px]">group</span>
+                  <span className="text-sm">User Management</span>
+                </a>
+              ) : null}
             </div>
           </div>
           <div className="mt-auto space-y-1">
@@ -119,7 +143,8 @@ export function SettingsPage() {
                           className="flex-1 bg-surface-container-low border-none rounded-lg text-sm px-4 py-2.5 focus:ring-2 focus:ring-primary/20 transition-all"
                           readOnly
                           type="email"
-                          value="alex.vance@luminous-health.org"
+                          value={user?.email || ''}
+                          placeholder="No email on file"
                         />
                         <button className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-all" type="button">
                           Change
@@ -262,9 +287,11 @@ export function SettingsPage() {
                       />
                       <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-bold">+1</div>
                     </div>
-                    <button className="w-full bg-white text-tertiary py-2 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-opacity-90 transition-all" type="button">
-                      Manage Permissions
-                    </button>
+                    {isAdmin ? (
+                      <a className="w-full bg-white text-tertiary py-2 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-opacity-90 transition-all text-center" href="/admin/users">
+                        Manage Permissions
+                      </a>
+                    ) : null}
                   </div>
                   <div className="absolute -right-4 -bottom-4 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
                 </div>

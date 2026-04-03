@@ -1,11 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/AuthProvider';
+import { firebaseEnabled } from '../auth/firebase';
 
 const bodyClassName = 'bg-background font-body text-on-surface min-h-screen flex items-center justify-center p-4 md:p-8 page-login';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const { isAuthenticated, loginWithEmail, loginWithGoogle } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const previous = document.body.className;
@@ -16,9 +23,45 @@ export function LoginPage() {
     };
   }, []);
 
-  const handleSubmit = (event) => {
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/dashboard_sleek');
+    }
+  }, [isAuthenticated, navigate]);
+
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    navigate('/dashboard_sleek');
+    if (!firebaseEnabled) {
+      setErrorMessage('Firebase is not configured yet.');
+      return;
+    }
+    setIsSubmitting(true);
+    setErrorMessage('');
+    try {
+      await loginWithEmail(email, password);
+      navigate('/dashboard_sleek');
+    } catch (error) {
+      setErrorMessage('Sign-in failed. Use Google SSO or create an Email/Password user in Firebase Auth.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (!firebaseEnabled) {
+      setErrorMessage('Firebase is not configured yet.');
+      return;
+    }
+    setIsSubmitting(true);
+    setErrorMessage('');
+    try {
+      await loginWithGoogle();
+      navigate('/dashboard_sleek');
+    } catch (error) {
+      setErrorMessage('Google sign-in failed.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -72,6 +115,8 @@ export function LoginPage() {
                   className="w-full pl-12 pr-4 py-4 bg-surface-container-highest/30 border border-outline-variant/20 rounded-xl focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all outline-none placeholder:text-outline/50"
                   placeholder="name@organization.com"
                   type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
                 />
               </div>
             </div>
@@ -89,6 +134,8 @@ export function LoginPage() {
                   className="w-full pl-12 pr-12 py-4 bg-surface-container-highest/30 border border-outline-variant/20 rounded-xl focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all outline-none placeholder:text-outline/50"
                   placeholder="************"
                   type={isPasswordVisible ? 'text' : 'password'}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
                 />
                 <button
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-outline hover:text-primary transition-colors"
@@ -108,10 +155,14 @@ export function LoginPage() {
               <button
                 className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-xl shadow-primary/20 hover:bg-primary-container active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                 type="submit"
+                disabled={isSubmitting}
               >
                 Sign In
                 <span aria-hidden="true" className="material-symbols-outlined text-lg">arrow_forward</span>
               </button>
+              {errorMessage ? (
+                <p className="text-xs font-semibold text-error text-center">{errorMessage}</p>
+              ) : null}
               <div className="relative py-2">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-outline-variant/30"></div>
@@ -123,6 +174,8 @@ export function LoginPage() {
               <button
                 className="w-full py-4 bg-white/50 border border-outline-variant/30 text-on-surface font-semibold rounded-xl hover:bg-white/80 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
                 type="button"
+                onClick={handleGoogleSignIn}
+                disabled={isSubmitting}
               >
                 <img
                   alt="SSO Provider"

@@ -1,8 +1,20 @@
-﻿﻿﻿﻿import { useEffect } from 'react';
+﻿﻿﻿import { useEffect } from 'react';
+import { authFetch } from '../auth/api';
+import { useAuth } from '../auth/AuthProvider';
+import {
+  canAny,
+  CLAIMS_ACCESS_PERMISSIONS,
+  ENROLLMENT_ACCESS_PERMISSIONS,
+  REMITTANCE_ACCESS_PERMISSIONS
+} from '../auth/permissions';
 
 const bodyClassName = 'bg-background text-on-surface font-body selection:bg-primary-fixed selection:text-on-primary-fixed page-claims';
 
 export function Claims837Page() {
+  const { permissions } = useAuth();
+  const canClaims = canAny(permissions, CLAIMS_ACCESS_PERMISSIONS);
+  const canEnrollment = canAny(permissions, ENROLLMENT_ACCESS_PERMISSIONS);
+  const canRemittance = canAny(permissions, REMITTANCE_ACCESS_PERMISSIONS);
   useEffect(() => {
     const previous = document.body.className;
     document.body.className = bodyClassName;
@@ -15,7 +27,7 @@ export function Claims837Page() {
   useEffect(() => {
     async function loadClaimsData() {
       try {
-        const files = await fetch('/api/files').then((r) => r.json());
+        const files = await authFetch('/api/files').then((r) => r.json());
         const claimFiles = Array.isArray(files) ? files.filter((f) => f.transaction_type === '837p' || f.transaction_type === '837i') : [];
 
         const tbody = document.getElementById('claims-tbody');
@@ -60,7 +72,7 @@ export function Claims837Page() {
         let billedTotal = 0;
         for (const file of claimFiles) {
           try {
-            const pr = await fetch('/api/files/' + file.id + '/parse-result').then(r => r.json());
+            const pr = await authFetch('/api/files/' + file.id + '/parse-result').then((r) => r.json());
             const claims = pr?.raw_json?.structured_data || [];
             for (const claim of claims) {
               billedTotal += parseFloat(claim.total_charge || 0);
@@ -194,9 +206,11 @@ export function Claims837Page() {
             <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/dashboard_sleek">
               Dashboard
             </a>
-            <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/837_claims_view">
-              Reports
-            </a>
+            {canClaims ? (
+              <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/837_claims_view">
+                Reports
+              </a>
+            ) : null}
           </nav>
         </div>
         <div className="flex items-center gap-3">
@@ -257,30 +271,36 @@ export function Claims837Page() {
           >
             <span className="material-symbols-outlined">analytics</span> Master Parser
           </a>
-          <a
-            className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]"
-            href="/835_remittance_sleek"
-            data-nav-link="true"
-          >
-            <span className="material-symbols-outlined">payments</span> 835 Remittance
-          </a>
-          <a
-            className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]"
-            href="/834_enrollment_sleek"
-            data-nav-link="true"
-          >
-            <span className="material-symbols-outlined">group_add</span> 834 Enrollment
-          </a>
-          <a
-            className="bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide scale-100 active:scale-[0.98] transition-transform duration-300"
-            href="/837_claims_view"
-            data-nav-link="true"
-          >
-            <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
-              description
-            </span>{' '}
-            837 Claims
-          </a>
+          {canRemittance ? (
+            <a
+              className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]"
+              href="/835_remittance_sleek"
+              data-nav-link="true"
+            >
+              <span className="material-symbols-outlined">payments</span> 835 Remittance
+            </a>
+          ) : null}
+          {canEnrollment ? (
+            <a
+              className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]"
+              href="/834_enrollment_sleek"
+              data-nav-link="true"
+            >
+              <span className="material-symbols-outlined">group_add</span> 834 Enrollment
+            </a>
+          ) : null}
+          {canClaims ? (
+            <a
+              className="bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide scale-100 active:scale-[0.98] transition-transform duration-300"
+              href="/837_claims_view"
+              data-nav-link="true"
+            >
+              <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
+                description
+              </span>{' '}
+              837 Claims
+            </a>
+          ) : null}
         </nav>
         <div className="mt-auto px-4 pb-4">
           <button

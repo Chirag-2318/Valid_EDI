@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.firebase_auth import UserContext, ensure_upload_for_transaction, get_current_user
 from app.database import get_db
 from app.schemas import EDIFileResponse
 from app.services.db_service import DBService
@@ -14,6 +15,7 @@ router = APIRouter()
 async def upload_edi(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(get_current_user),
 ):
     try:
         file_bytes = await file.read()
@@ -21,6 +23,8 @@ async def upload_edi(
 
         # Parse and validate
         edi_data = EDIService().process_file(file_bytes, original_filename)
+
+        ensure_upload_for_transaction(user, edi_data.get("transaction_type"))
 
         # Upload to S3
         s3_result = S3Service().upload_file(
@@ -52,5 +56,7 @@ async def upload_edi(
 
         return EDIFileResponse.model_validate(edi_file)
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

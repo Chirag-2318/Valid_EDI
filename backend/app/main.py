@@ -6,11 +6,20 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.auth.firebase_auth import (
+    ANY_VIEW_PERMISSIONS,
+    UserContext,
+    ensure_domains_view,
+    ensure_upload_for_transaction,
+    ensure_view_for_transaction,
+    get_current_user,
+    require_any_permissions,
+)
 from app.models import (
     BatchResult,
     ChatRequest,
@@ -27,7 +36,7 @@ from app.services.chat import ask_huggingface
 from app.services.exports import csv_bytes, error_report_pdf_bytes, json_bytes
 from app.services.summaries import build_834_summary, build_835_summary, build_family_grouping
 from app.validation.rules import validate
-from app.routers import upload, files, copilot
+from app.routers import admin, auth, upload, files, copilot
 
 app = FastAPI(title="EdiPro Healthcare EDI Parser API", version="1.0.0")
 
@@ -42,6 +51,8 @@ app.add_middleware(
 app.include_router(upload.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
 app.include_router(copilot.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 
 STITCH_DIR = Path(__file__).resolve().parents[2] / "stitch"
 if STITCH_DIR.exists():
@@ -61,8 +72,9 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/parse")
-def parse_raw(request: ParseRequest) -> dict[str, Any]:
+def parse_raw(request: ParseRequest, user: UserContext = Depends(get_current_user)) -> dict[str, Any]:
     parsed = parse_x12(request.content)
+    ensure_view_for_transaction(user, parsed.transaction_type)
     validation = validate(parsed)
     return {
         "parse_result": parsed.model_dump(),
@@ -71,9 +83,13 @@ def parse_raw(request: ParseRequest) -> dict[str, Any]:
 
 
 @app.post("/api/upload", response_model=UploadResponse)
-async def upload_file(file: UploadFile = File(...)) -> UploadResponse:
+async def upload_file(
+    file: UploadFile = File(...),
+    user: UserContext = Depends(get_current_user),
+) -> UploadResponse:
     content = (await file.read()).decode("utf-8", errors="ignore")
     parsed = parse_x12(content)
+    ensure_upload_for_transaction(user, parsed.transaction_type)
     validation = validate(parsed)
 
     report = ParsedFileReport(
@@ -93,7 +109,10 @@ async def upload_file(file: UploadFile = File(...)) -> UploadResponse:
 
 
 @app.post("/api/batch", response_model=BatchResult)
-async def batch_upload(file: UploadFile = File(...)) -> BatchResult:
+async def batch_upload(
+    file: UploadFile = File(...),
+    user: UserContext = Depends(get_current_user),
+) -> BatchResult:
     if not (file.filename or "").lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="Please upload a ZIP file for batch processing.")
 
@@ -107,6 +126,7 @@ async def batch_upload(file: UploadFile = File(...)) -> BatchResult:
                 continue
             data = zf.read(name).decode("utf-8", errors="ignore")
             parsed = parse_x12(data)
+            ensure_upload_for_transaction(user, parsed.transaction_type)
             validation = validate(parsed)
             reports.append(
                 ParsedFileReport(filename=name, parse_result=parsed, validation_result=validation)
@@ -119,13 +139,17 @@ async def batch_upload(file: UploadFile = File(...)) -> BatchResult:
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
+async def chat(request: ChatRequest, user: UserContext = Depends(get_current_user)) -> ChatResponse:
     answer = await ask_huggingface(request.question, request.context)
     return ChatResponse(answer=answer)
 
 
 @app.post("/api/reconcile/835-837")
-def reconcile_835_837(request: ReconcileRequest) -> dict[str, Any]:
+def reconcile_835_837(
+    request: ReconcileRequest,
+    user: UserContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    ensure_domains_view(user, "claims", "remittance")
     p837 = parse_x12(request.edi_837)
     p835 = parse_x12(request.edi_835)
 
@@ -159,7 +183,11 @@ def reconcile_835_837(request: ReconcileRequest) -> dict[str, Any]:
 
 
 @app.post("/api/delta/834")
-def delta_834(request: DeltaRequest) -> dict[str, Any]:
+def delta_834(
+    request: DeltaRequest,
+    user: UserContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    ensure_domains_view(user, "enrollment")
     old_summary = build_834_summary(parse_x12(request.old_834).segments)
     new_summary = build_834_summary(parse_x12(request.new_834).segments)
 
@@ -178,7 +206,11 @@ def delta_834(request: DeltaRequest) -> dict[str, Any]:
 
 
 @app.post("/api/eligibility/834-837")
-def eligibility_check(request: EligibilityRequest) -> dict[str, Any]:
+def eligibility_check(
+    request: EligibilityRequest,
+    user: UserContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    ensure_domains_view(user, "enrollment", "claims")
     members = build_834_summary(parse_x12(request.edi_834).segments)
     member_ids = {m.get("member_id") for m in members if m.get("member_id")}
 
@@ -197,7 +229,10 @@ def eligibility_check(request: EligibilityRequest) -> dict[str, Any]:
 
 
 @app.post("/api/export/json")
-def export_json(payload: dict[str, Any]) -> StreamingResponse:
+def export_json(
+    payload: dict[str, Any],
+    user: UserContext = Depends(require_any_permissions(*ANY_VIEW_PERMISSIONS)),
+) -> StreamingResponse:
     return StreamingResponse(
         io.BytesIO(json_bytes(payload)),
         media_type="application/json",
@@ -206,7 +241,10 @@ def export_json(payload: dict[str, Any]) -> StreamingResponse:
 
 
 @app.post("/api/export/errors-pdf")
-def export_errors_pdf(payload: dict[str, Any]) -> StreamingResponse:
+def export_errors_pdf(
+    payload: dict[str, Any],
+    user: UserContext = Depends(require_any_permissions(*ANY_VIEW_PERMISSIONS)),
+) -> StreamingResponse:
     issues = payload.get("issues", [])
     return StreamingResponse(
         io.BytesIO(error_report_pdf_bytes(issues)),
@@ -216,7 +254,10 @@ def export_errors_pdf(payload: dict[str, Any]) -> StreamingResponse:
 
 
 @app.post("/api/export/members-csv")
-def export_members_csv(payload: dict[str, Any]) -> StreamingResponse:
+def export_members_csv(
+    payload: dict[str, Any],
+    user: UserContext = Depends(require_any_permissions(*ANY_VIEW_PERMISSIONS)),
+) -> StreamingResponse:
     rows = payload.get("rows", [])
     return StreamingResponse(
         io.BytesIO(csv_bytes(rows)),
@@ -226,7 +267,10 @@ def export_members_csv(payload: dict[str, Any]) -> StreamingResponse:
 
 
 @app.post("/api/export/corrected-edi")
-def export_corrected_edi(payload: dict[str, Any]) -> StreamingResponse:
+def export_corrected_edi(
+    payload: dict[str, Any],
+    user: UserContext = Depends(require_any_permissions(*ANY_VIEW_PERMISSIONS)),
+) -> StreamingResponse:
     segments = payload.get("segments", [])
     try:
         text = to_segment_text([_segment_from_dict(s) for s in segments])
@@ -241,7 +285,11 @@ def export_corrected_edi(payload: dict[str, Any]) -> StreamingResponse:
 
 
 @app.post("/api/834/family-grouping")
-def family_grouping(payload: dict[str, Any]) -> dict[str, Any]:
+def family_grouping(
+    payload: dict[str, Any],
+    user: UserContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    ensure_domains_view(user, "enrollment")
     rows = payload.get("rows", [])
     return {"groups": build_family_grouping(rows)}
 
