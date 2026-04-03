@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import { authFetch } from '../auth/api';
 import { useAuth } from '../auth/AuthProvider';
 import {
@@ -7,6 +7,406 @@ import {
   ENROLLMENT_ACCESS_PERMISSIONS,
   REMITTANCE_ACCESS_PERMISSIONS
 } from '../auth/permissions';
+
+const ELEMENT_LABELS = {
+  ISA: [
+    'Authorization Info Qualifier',
+    'Authorization Info',
+    'Security Info Qualifier',
+    'Security Info',
+    'Interchange ID Qualifier',
+    'Interchange Sender ID',
+    'Interchange ID Qualifier',
+    'Interchange Receiver ID',
+    'Interchange Date',
+    'Interchange Time',
+    'Repetition Separator',
+    'Interchange Control Version Number',
+    'Interchange Control Number',
+    'Acknowledgment Requested',
+    'Usage Indicator',
+    'Component Element Separator'
+  ],
+  GS: [
+    'Functional Identifier Code',
+    'Application Sender Code',
+    'Application Receiver Code',
+    'Date',
+    'Time',
+    'Group Control Number',
+    'Responsible Agency Code',
+    'Version / Release / Industry ID Code'
+  ],
+  ST: ['Transaction Set ID', 'Transaction Set Control Number', 'Implementation Convention Reference'],
+  BHT: [
+    'Hierarchical Structure Code',
+    'Transaction Set Purpose Code',
+    'Reference Identification',
+    'Date',
+    'Time',
+    'Transaction Type Code'
+  ],
+  BGN: [
+    'Transaction Set Purpose Code',
+    'Reference ID',
+    'Date',
+    'Time',
+    'Time Code',
+    'Reference ID 2',
+    'Transaction Type Code'
+  ],
+  NM1: [
+    'Entity Identifier Code',
+    'Entity Type Qualifier',
+    'Last Name',
+    'First Name',
+    'Middle Name',
+    'Name Prefix',
+    'Name Suffix',
+    'Identification Code Qualifier',
+    'Identification Code'
+  ],
+  N3: ['Address Line 1', 'Address Line 2'],
+  N4: ['City Name', 'State Code', 'Postal Code', 'Country Code'],
+  REF: ['Reference ID Qualifier', 'Reference ID', 'Description'],
+  DTP: ['Date/Time Qualifier', 'Date/Time Format Qualifier', 'Date/Time Period'],
+  DMG: ['Date/Time Format Qualifier', 'Date/Time Period', 'Gender Code'],
+  CLM: [
+    'Patient Control Number',
+    'Total Claim Charge Amount',
+    'Claim Filing Indicator Code',
+    'Non-Institutional Claim Type Code',
+    'Health Care Service Location Information',
+    'Provider Signature on File',
+    'Assignment of Benefits',
+    'Release of Information Code'
+  ],
+  CLP: [
+    'Patient Control Number',
+    'Claim Status Code',
+    'Total Claim Charge Amount',
+    'Claim Payment Amount',
+    'Patient Responsibility Amount',
+    'Claim Filing Indicator Code',
+    'Payer Claim Control Number'
+  ],
+  CAS: [
+    'Adjustment Group Code',
+    'Adjustment Reason Code',
+    'Adjustment Amount',
+    'Adjustment Quantity',
+    'Reason Code 2',
+    'Amount 2',
+    'Quantity 2'
+  ],
+  BPR: [
+    'Transaction Handling Code',
+    'Total Payment Amount',
+    'Credit/Debit Flag',
+    'Payment Method Code',
+    'Payment Format Code',
+    'DFI ID Number Qualifier',
+    'DFI Identification Number',
+    'Account Number Qualifier',
+    'Account Number',
+    'Originating Company Identifier'
+  ],
+  TRN: ['Trace Type Code', 'Reference ID', 'Originating Company Identifier'],
+  INS: [
+    'Subscriber/Dependent Code',
+    'Individual Relationship Code',
+    'Maintenance Type Code',
+    'Maintenance Reason Code',
+    'Benefit Status Code',
+    'Medicare Status Code',
+    'COBRA Qualifying Event Code',
+    'Employment Status Code',
+    'Student Status Code',
+    'Handicap Indicator',
+    'Date/Time Format Qualifier',
+    'Date/Time Period'
+  ],
+  HL: ['Hierarchical ID Number', 'Hierarchical Parent ID Number', 'Hierarchical Level Code', 'Hierarchical Child Code'],
+  LX: ['Assigned Number'],
+  SE: ['Number of Included Segments', 'Transaction Set Control Number'],
+  GE: ['Number of Transaction Sets', 'Group Control Number'],
+  IEA: ['Number of Included Functional Groups', 'Interchange Control Number']
+};
+
+const DOC_DETAILS = {
+  '835': [
+    {
+      title: 'CAS adjustment reason codes',
+      body: 'Validate CAS01 group codes and CAS02 reason codes against payer guidance.'
+    },
+    {
+      title: 'PR/CO/OA/PI group codes',
+      body: 'Confirm patient vs payer responsibility amounts across CAS segments.'
+    },
+    {
+      title: 'CLP reconciliation',
+      body: 'Check CLP02/CLP03/CLP04 totals for billed vs paid consistency.'
+    }
+  ],
+  '834': [
+    {
+      title: 'INS maintenance type codes',
+      body: 'Validate INS03 values for enrollment, change, or termination codes.'
+    },
+    {
+      title: 'Member relationship codes',
+      body: 'Verify INS02 relationship codes for subscriber/dependent mapping.'
+    },
+    {
+      title: 'Subscriber group / policy numbers',
+      body: 'Review REF qualifiers 0F/1L and ensure policy identifiers are present.'
+    },
+    {
+      title: 'Date consistency',
+      body: 'Check DTP and DMG segments for format and logical order.'
+    },
+    {
+      title: 'Duplicate member detection',
+      body: 'Scan for repeated subscriber IDs across REF segments.'
+    }
+  ]
+};
+
+const PANE_MIN_SIZES = { raw: 260, tree: 320, errors: 280 };
+
+const formatEdiContent = (text = '') => {
+  if (!text) return '';
+  const normalized = text.replace(/\r/g, '');
+  const segmentSeparator = normalized.includes('~') ? '~' : '\n';
+  if (segmentSeparator === '\n') {
+    return normalized;
+  }
+  const segments = normalized
+    .split(segmentSeparator)
+    .map((seg) => seg.trim())
+    .filter(Boolean);
+  return segments.map((seg) => `${seg}${segmentSeparator}`).join('\n');
+};
+
+const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
+
+const getElementLabel = (segmentId, index) => {
+  const labels = ELEMENT_LABELS[segmentId] || [];
+  return labels[index] || `Element ${index + 1}`;
+};
+
+const normalizeDbIssues = (issues = []) => issues.map((issue) => ({
+  code: issue.error_code || 'Validation Error',
+  message: issue.error_message || '',
+  severity: String(issue.severity || 'error').toLowerCase(),
+  loop: issue.loop_id || '',
+  segmentId: issue.segment || '',
+  elementPosition: issue.element_position || null,
+  currentValue: issue.current_value || '',
+  suggestedValue: issue.suggestion || ''
+}));
+
+const normalizeParseIssues = (issues = []) => issues.map((issue) => ({
+  code: issue.code || 'Validation Error',
+  message: issue.message || '',
+  severity: String(issue.severity || 'error').toLowerCase(),
+  loop: issue.loop_location || '',
+  segmentId: issue.segment_id || '',
+  elementPosition: issue.element_position || null,
+  currentValue: issue.current_value || '',
+  suggestedValue: issue.suggested_value || ''
+}));
+
+const buildOverviewFromParse = (parseResult, reportText = '') => {
+  if (reportText && reportText.trim()) return reportText;
+  if (!parseResult) return 'No overview available.';
+  const envelope = parseResult.envelope || {};
+  const loopCount = parseResult.loop_tree?.children?.length || 0;
+  const segmentCount = parseResult.segments?.length || 0;
+  return [
+    `EDI REPORT - ${parseResult.transaction_type || 'UNKNOWN'}`,
+    '',
+    'OVERVIEW',
+    '',
+    `Sender: ${envelope.sender_id || 'N/A'}`,
+    `Receiver: ${envelope.receiver_id || 'N/A'}`,
+    `Date: ${envelope.interchange_date || 'N/A'}`,
+    `Control #: ${envelope.control_number || 'N/A'}`,
+    '',
+    'STRUCTURE',
+    '',
+    `Total Loops: ${loopCount}`,
+    `Total Segments: ${segmentCount}`
+  ].join('\n');
+};
+
+const buildOverviewSections = (text = '') => {
+  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) {
+    return { title: 'Overview', sections: [] };
+  }
+
+  const titleLine = lines[0].replace(/=+/g, '').trim();
+  const title = titleLine || 'Overview';
+  const sections = [];
+  let current = { title: 'Overview', items: [] };
+
+  const pushCurrent = () => {
+    if (current.items.length) {
+      sections.push(current);
+      current = { title: '', items: [] };
+    }
+  };
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^[-=]{3,}$/.test(line)) {
+      continue;
+    }
+    if (!line.includes(':') && /^[A-Z0-9\s]{3,}$/.test(line)) {
+      pushCurrent();
+      current = { title: line.replace(/\s+/g, ' ').trim(), items: [] };
+      continue;
+    }
+    const parts = line.split(':');
+    if (parts.length > 1) {
+      const label = parts.shift().trim();
+      const value = parts.join(':').trim();
+      current.items.push({ label, value });
+    } else {
+      current.items.push({ text: line });
+    }
+  }
+  pushCurrent();
+
+  return { title, sections };
+};
+
+const toNumber = (value) => {
+  if (value === null || value === undefined) return 0;
+  const cleaned = String(value).replace(/[^0-9.\-]/g, '');
+  if (!cleaned) return 0;
+  const parsed = Number(cleaned);
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const uniqueCounts = (values) => {
+  const map = new Map();
+  values.forEach((value) => {
+    if (!value) return;
+    map.set(value, (map.get(value) || 0) + 1);
+  });
+  return Array.from(map.entries()).map(([value, count]) => ({ value, count }));
+};
+
+const build835Details = (segments) => {
+  const casSegments = segments.filter((seg) => seg.id === 'CAS');
+  const casGroups = casSegments.map((seg) => seg.elements?.[0]).filter(Boolean);
+  const casReasonCodes = [];
+  casSegments.forEach((seg) => {
+    const elements = seg.elements || [];
+    [1, 4, 7, 10].forEach((idx) => {
+      if (elements[idx]) {
+        casReasonCodes.push(elements[idx]);
+      }
+    });
+  });
+  const clpSegments = segments.filter((seg) => seg.id === 'CLP');
+  const totals = clpSegments.reduce((acc, seg) => {
+    acc.billed += toNumber(seg.elements?.[2]);
+    acc.paid += toNumber(seg.elements?.[3]);
+    return acc;
+  }, { billed: 0, paid: 0 });
+  const variance = totals.billed - totals.paid;
+
+  return [
+    {
+      title: 'CAS adjustment reason codes',
+      summary: `${casReasonCodes.length} codes`,
+      items: uniqueCounts(casReasonCodes)
+        .map((row) => `${row.value} (${row.count})`)
+    },
+    {
+      title: 'PR/CO/OA/PI group codes',
+      summary: `${casGroups.length} groups`,
+      items: uniqueCounts(casGroups)
+        .map((row) => `${row.value} (${row.count})`)
+    },
+    {
+      title: 'CLP reconciliation',
+      summary: `${clpSegments.length} claims`,
+      items: [
+        `Total billed: ${totals.billed.toFixed(2)}`,
+        `Total paid: ${totals.paid.toFixed(2)}`,
+        `Variance: ${variance.toFixed(2)}`
+      ]
+    }
+  ];
+};
+
+const build834Details = (segments) => {
+  const insSegments = segments.filter((seg) => seg.id === 'INS');
+  const maintCodes = insSegments.map((seg) => seg.elements?.[2]).filter(Boolean);
+  const relCodes = insSegments.map((seg) => seg.elements?.[1]).filter(Boolean);
+  const refSegments = segments.filter((seg) => seg.id === 'REF');
+  const policyRefs = refSegments
+    .filter((seg) => ['0F', '1L'].includes(seg.elements?.[0]))
+    .map((seg) => seg.elements?.[1])
+    .filter(Boolean);
+
+  const dtpSegments = segments.filter((seg) => seg.id === 'DTP');
+  const dtpDates = dtpSegments
+    .map((seg) => seg.elements?.[2])
+    .filter(Boolean);
+  const invalidDates = dtpDates.filter((date) => !/^\d{8}$/.test(date));
+  const duplicates = uniqueCounts(policyRefs).filter((row) => row.count > 1);
+
+  return [
+    {
+      title: 'INS maintenance type codes',
+      summary: `${maintCodes.length} values`,
+      items: uniqueCounts(maintCodes).map((row) => `${row.value} (${row.count})`)
+    },
+    {
+      title: 'Member relationship codes',
+      summary: `${relCodes.length} values`,
+      items: uniqueCounts(relCodes).map((row) => `${row.value} (${row.count})`)
+    },
+    {
+      title: 'Subscriber group / policy numbers',
+      summary: `${policyRefs.length} IDs`,
+      items: policyRefs.length ? policyRefs.slice(0, 12) : ['No policy IDs found']
+    },
+    {
+      title: 'Date consistency',
+      summary: `${dtpDates.length} dates`,
+      items: invalidDates.length
+        ? [`Invalid dates: ${invalidDates.join(', ')}`]
+        : ['All DTP dates are in CCYYMMDD format']
+    },
+    {
+      title: 'Duplicate member detection',
+      summary: `${duplicates.length} duplicates`,
+      items: duplicates.length
+        ? duplicates.map((row) => `${row.value} (${row.count})`)
+        : ['No duplicates detected']
+    }
+  ];
+};
+
+const buildDocDetails = (transactionType, segments) => {
+  if (!segments.length) return [];
+  if (transactionType === '835') return build835Details(segments);
+  if (transactionType === '834') return build834Details(segments);
+  return [];
+};
+
+const buildRawFromSegments = (segments, delimiters) => {
+  const elementSep = delimiters?.element || '*';
+  const segmentSep = delimiters?.segment || '~';
+  const lines = segments.map((seg) => [seg.id, ...(seg.elements || [])].join(elementSep));
+  return lines.join(segmentSep) + segmentSep;
+};
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary page-master-parser';
 
@@ -17,11 +417,29 @@ export function MasterParserPage() {
   const canRemittance = canAny(permissions, REMITTANCE_ACCESS_PERMISSIONS);
   const [copilotData, setCopilotData] = useState(null);
   const [copilotLoading, setCopilotLoading] = useState(false);
+  const [activePane, setActivePane] = useState('');
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [fixLoading, setFixLoading] = useState(false);
   const [currentFileId, setCurrentFileId] = useState(null);
+  const [fileName, setFileName] = useState('Loading...');
+  const [rawContent, setRawContent] = useState('');
+  const [rawDirty, setRawDirty] = useState(false);
+  const [rawLoading, setRawLoading] = useState(false);
+  const [rawSaving, setRawSaving] = useState(false);
+  const [revalidateLoading, setRevalidateLoading] = useState(false);
+  const [rawSaveStatus, setRawSaveStatus] = useState('');
+  const [parseTree, setParseTree] = useState(null);
+  const [parseSegments, setParseSegments] = useState([]);
+  const [parseDelimiters, setParseDelimiters] = useState(null);
+  const [validationIssues, setValidationIssues] = useState([]);
+  const [overviewText, setOverviewText] = useState('');
+  const [transactionType, setTransactionType] = useState('');
+  const [paneSizes, setPaneSizes] = useState({ raw: 360, tree: 520, errors: 360 });
+  const [dragState, setDragState] = useState(null);
+  const paneContainerRef = useRef(null);
+  const [hasSized, setHasSized] = useState(false);
 
   async function triggerCopilotAnalysis(fileId) {
     if (!fileId) return;
@@ -75,26 +493,148 @@ export function MasterParserPage() {
       const data = await res.json();
       if (data.success) {
         const parseResult = await authFetch('/api/files/' + currentFileId + '/parse-result').then((r) => r.json());
-        const contentEl = document.getElementById('edi-content');
-        if (contentEl && parseResult.raw_json && parseResult.raw_json.report) {
-          const lines = parseResult.raw_json.report.split('\n');
-          contentEl.innerHTML = lines.map((line) => '<p>' + (line || '&nbsp;') + '</p>').join('');
-        }
+        const reportText = parseResult?.raw_json?.report || '';
+        setOverviewText(buildOverviewFromParse(null, reportText));
         const errorsRes = await authFetch('/api/files/' + currentFileId + '/errors').then((r) => r.json());
-        const countEl = document.getElementById('validation-error-count');
-        const logEl = document.getElementById('validation-log');
-        if (countEl) countEl.textContent = 'Validation Log (' + errorsRes.length + ' Error' + (errorsRes.length !== 1 ? 's' : '') + ')';
-        if (logEl) {
-          if (errorsRes.length === 0) {
-            logEl.innerHTML = '<div class="p-4 bg-white rounded-xl shadow-sm border-l-4 border-green-500 flex items-center gap-4"><span class="material-symbols-outlined text-green-600">check_circle</span><p class="text-sm font-semibold text-green-700">All fixes applied. File is now clean.</p></div>';
-          }
-        }
+        setValidationIssues(normalizeDbIssues(errorsRes));
         triggerCopilotAnalysis(currentFileId);
       }
     } catch (e) {
       alert('Error applying fix: ' + e.message);
     } finally {
       setFixLoading(false);
+    }
+  }
+
+  async function parseRawContent(content, reportText = '', options = { setIssues: true, setOverview: true }) {
+    if (!content || !content.trim()) return null;
+    const res = await authFetch('/api/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    });
+    if (!res.ok) {
+      throw new Error('Parse failed');
+    }
+    const data = await res.json();
+    const parseResult = data.parse_result || {};
+    setParseTree(parseResult.loop_tree || null);
+    setParseSegments(parseResult.segments || []);
+    setParseDelimiters(parseResult.delimiters || null);
+    setTransactionType(String(parseResult.transaction_type || '').toUpperCase());
+    if (options.setOverview) {
+      setOverviewText(buildOverviewFromParse(parseResult, reportText));
+    }
+    if (options.setIssues) {
+      setValidationIssues(normalizeParseIssues(data.validation_result?.issues || []));
+    }
+    return data;
+  }
+
+  async function handleSaveEdits() {
+    if (!rawContent.trim()) return;
+    setRawSaving(true);
+    setRawSaveStatus('');
+    try {
+      if (!currentFileId) return;
+      const parseResult = await saveRawToBackend(rawContent);
+      const reportText = parseResult?.raw_json?.report || '';
+      await parseRawContent(rawContent, reportText, { setIssues: true, setOverview: true });
+      setRawDirty(false);
+      setRawSaveStatus('Saved to database');
+    } catch (err) {
+      setRawSaveStatus(err?.message || 'Save failed');
+    } finally {
+      setRawSaving(false);
+    }
+  }
+
+  async function handleRevalidate() {
+    if (!rawContent.trim()) return;
+    setRevalidateLoading(true);
+    setRawSaveStatus('');
+    try {
+      if (currentFileId) {
+        await saveRawToBackend(rawContent);
+      }
+      await parseRawContent(rawContent, '', { setIssues: true, setOverview: false });
+      setRawSaveStatus('Revalidated');
+    } catch (err) {
+      setRawSaveStatus('Revalidate failed');
+    } finally {
+      setRevalidateLoading(false);
+    }
+  }
+
+  async function saveRawToBackend(content) {
+    const res = await authFetch('/api/files/' + currentFileId + '/raw', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    });
+    if (!res.ok) {
+      let detail = 'Save failed';
+      try {
+        const errorPayload = await res.json();
+        if (errorPayload?.detail) {
+          detail = errorPayload.detail;
+        }
+      } catch (err) {
+        detail = 'Save failed';
+      }
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
+  async function handleAutoFix() {
+    if (!parseSegments.length || !validationIssues.length) {
+      setRawSaveStatus('No fix suggestions available');
+      return;
+    }
+    const updatedSegments = parseSegments.map((seg) => ({
+      ...seg,
+      elements: [...(seg.elements || [])]
+    }));
+    let updates = 0;
+
+    validationIssues.forEach((issue) => {
+      if (!issue.suggestedValue || !issue.segmentId || !issue.elementPosition) {
+        return;
+      }
+      const positionIndex = issue.elementPosition - 1;
+      updatedSegments.forEach((seg) => {
+        if (seg.id !== issue.segmentId) return;
+        const current = seg.elements?.[positionIndex];
+        if (issue.currentValue && current !== issue.currentValue) return;
+        if (typeof seg.elements?.[positionIndex] === 'string') {
+          seg.elements[positionIndex] = issue.suggestedValue;
+          updates += 1;
+        }
+      });
+    });
+
+    if (!updates) {
+      setRawSaveStatus('No fix suggestions available');
+      return;
+    }
+
+    const rebuilt = buildRawFromSegments(updatedSegments, parseDelimiters);
+    const formatted = formatEdiContent(rebuilt);
+    setRawContent(formatted);
+    setRawDirty(true);
+    setRawSaving(true);
+    setRawSaveStatus('');
+    try {
+      const parseResult = await saveRawToBackend(formatted);
+      const reportText = parseResult?.raw_json?.report || '';
+      await parseRawContent(formatted, reportText, { setIssues: true, setOverview: true });
+      setRawDirty(false);
+      setRawSaveStatus(`Applied ${updates} fix${updates === 1 ? '' : 'es'}`);
+    } catch (err) {
+      setRawSaveStatus(err?.message || 'Fix failed');
+    } finally {
+      setRawSaving(false);
     }
   }
 
@@ -138,56 +678,220 @@ export function MasterParserPage() {
 
   useEffect(() => {
     async function loadFileData() {
-      const ediFilename = document.getElementById('edi-filename');
-      const ediContent = document.getElementById('edi-content');
-      const validationErrorCount = document.getElementById('validation-error-count');
-      const validationLog = document.getElementById('validation-log');
+      setRawLoading(true);
       try {
         const selectedFileId = localStorage.getItem('selectedFileId');
         const submissions = JSON.parse(localStorage.getItem('ediSubmissions') || '[]');
         const latest = submissions.length > 0 ? submissions[submissions.length - 1] : null;
         const id = selectedFileId || (latest ? latest.id : null);
         if (!id) {
-          if (ediContent) ediContent.innerHTML = '<p class="text-outline italic">No file selected. Please upload a file from the Dashboard.</p>';
-          if (ediFilename) ediFilename.textContent = 'No file loaded';
+          setFileName('No file loaded');
+          setRawContent('');
+          setOverviewText('');
+          setValidationIssues([]);
+          setParseTree(null);
+          setParseSegments([]);
+          setParseDelimiters(null);
           return;
         }
-        const [fileInfo, errors, parseResult] = await Promise.all([
+        const [fileInfo, parseResult] = await Promise.all([
           authFetch('/api/files/' + id).then((r) => r.json()),
-          authFetch('/api/files/' + id + '/errors').then((r) => r.json()),
           authFetch('/api/files/' + id + '/parse-result').then((r) => r.json())
         ]);
-        if (ediFilename) ediFilename.textContent = fileInfo.filename || id;
-        if (ediContent) {
-          const rawJson = parseResult.raw_json || {};
-          const report = rawJson.report || '';
-          const lines = report.split('\n');
-          ediContent.innerHTML = lines.map((line) => '<p>' + (line || '&nbsp;') + '</p>').join('');
-        }
-        if (validationErrorCount) validationErrorCount.textContent = 'Validation Log (' + errors.length + ' Error' + (errors.length !== 1 ? 's' : '') + ')';
-        if (validationLog) {
-          if (errors.length === 0) {
-            validationLog.innerHTML = '<div class="p-4 bg-white rounded-xl shadow-sm border-l-4 border-green-500 flex items-center gap-4"><span class="material-symbols-outlined text-green-600">check_circle</span><p class="text-sm font-semibold text-green-700">No validation errors found. This file is clean.</p></div>';
-          } else {
-            validationLog.innerHTML = '';
-            errors.forEach((error) => {
-              const card = document.createElement('div');
-              card.className = 'error-card p-4 bg-white rounded-xl shadow-sm border-l-4 ' + (error.severity === 'error' ? 'border-error' : 'border-amber-400') + ' flex items-start justify-between';
-              card.innerHTML = '<div class="flex gap-4"><div class="w-10 h-10 rounded-lg bg-error-container flex items-center justify-center text-error"><span class="material-symbols-outlined">report</span></div><div><h4 class="text-sm font-bold text-on-surface">' + (error.error_code || 'Validation Error') + '</h4><p class="text-xs text-on-surface-variant mt-1">' + (error.error_message || '') + '</p><div class="mt-2 flex items-center gap-2">' + (error.loop_id ? '<span class="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">LOOP: ' + error.loop_id + '</span>' : '') + (error.segment ? '<span class="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">SEG: ' + error.segment + '</span>' : '') + '<span class="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded uppercase">' + (error.severity || 'error') + '</span></div></div></div>';
-              validationLog.appendChild(card);
-            });
-          }
-        }
+        setFileName(fileInfo.filename || id);
+        setTransactionType(String(fileInfo.transaction_type || '').toUpperCase());
+        const reportText = parseResult?.raw_json?.report || '';
+        setOverviewText(buildOverviewFromParse(null, reportText));
         setCurrentFileId(id);
         triggerCopilotAnalysis(id);
+
+        let rawText = '';
+        try {
+          const rawRes = await authFetch('/api/files/' + id + '/raw');
+          if (rawRes.ok) {
+            rawText = await rawRes.text();
+          } else if (fileInfo?.s3_url) {
+            const fallbackRes = await fetch(fileInfo.s3_url);
+            if (fallbackRes.ok) {
+              rawText = await fallbackRes.text();
+            }
+          }
+        } catch (err) {
+          rawText = '';
+        }
+
+        if (rawText) {
+          const formatted = formatEdiContent(rawText);
+          setRawContent(formatted);
+          setRawDirty(false);
+          try {
+            await parseRawContent(formatted, reportText, { setIssues: true, setOverview: false });
+          } catch (err) {
+            setValidationIssues([]);
+          }
+        } else {
+          setRawContent('Raw EDI content unavailable. Please check the file source.');
+        }
       } catch (err) {
         console.error('Failed to load EDI file data:', err);
-        const el = document.getElementById('edi-content');
-        if (el) el.innerHTML = '<p class="text-error italic">Failed to load file data. Please check the server connection.</p>';
+        setRawContent('Failed to load file data. Please check the server connection.');
+        setValidationIssues([]);
+      } finally {
+        setRawLoading(false);
       }
     }
     loadFileData();
   }, []);
+
+  useEffect(() => {
+    if (!paneContainerRef.current || dragState) return undefined;
+    if (window.innerWidth < 1280) return undefined;
+
+    const resizerTotal = 20;
+    const containerWidth = paneContainerRef.current.clientWidth || 0;
+    if (!containerWidth) return undefined;
+
+    const total = containerWidth - resizerTotal;
+    const sum = paneSizes.raw + paneSizes.tree + paneSizes.errors;
+
+    if (!hasSized) {
+      const base = Math.floor(total / 3);
+      const raw = clamp(base, PANE_MIN_SIZES.raw, total);
+      const tree = clamp(base, PANE_MIN_SIZES.tree, total - raw);
+      const errors = clamp(total - raw - tree, PANE_MIN_SIZES.errors, total - raw);
+      setPaneSizes({ raw, tree, errors });
+      setHasSized(true);
+      return undefined;
+    }
+
+    if (Math.abs(sum - total) > 24) {
+      const ratio = total / sum;
+      const raw = clamp(Math.round(paneSizes.raw * ratio), PANE_MIN_SIZES.raw, total);
+      const tree = clamp(Math.round(paneSizes.tree * ratio), PANE_MIN_SIZES.tree, total - raw);
+      const errors = clamp(total - raw - tree, PANE_MIN_SIZES.errors, total - raw);
+      setPaneSizes({ raw, tree, errors });
+    }
+
+    return undefined;
+  }, [paneSizes, dragState, hasSized]);
+
+  useEffect(() => {
+    if (!dragState) return undefined;
+    const handleMove = (event) => {
+      const delta = event.clientX - dragState.startX;
+      const { raw, tree, errors } = dragState.startSizes;
+
+      if (dragState.pane === 'raw') {
+        const total = raw + tree;
+        let nextRaw = clamp(raw + delta, PANE_MIN_SIZES.raw, total - PANE_MIN_SIZES.tree);
+        let nextTree = total - nextRaw;
+        if (nextTree < PANE_MIN_SIZES.tree) {
+          nextTree = PANE_MIN_SIZES.tree;
+          nextRaw = total - nextTree;
+        }
+        setPaneSizes({ raw: nextRaw, tree: nextTree, errors });
+      }
+
+      if (dragState.pane === 'tree') {
+        const total = tree + errors;
+        let nextTree = clamp(tree + delta, PANE_MIN_SIZES.tree, total - PANE_MIN_SIZES.errors);
+        let nextErrors = total - nextTree;
+        if (nextErrors < PANE_MIN_SIZES.errors) {
+          nextErrors = PANE_MIN_SIZES.errors;
+          nextTree = total - nextErrors;
+        }
+        setPaneSizes({ raw, tree: nextTree, errors: nextErrors });
+      }
+    };
+
+    const handleUp = () => setDragState(null);
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+  }, [dragState]);
+
+  const startResize = (pane) => (event) => {
+    event.preventDefault();
+    setDragState({ pane, startX: event.clientX, startSizes: { ...paneSizes } });
+  };
+
+  const errorStats = validationIssues.reduce((acc, issue) => {
+    if (issue.severity === 'warning') acc.warning += 1;
+    else acc.error += 1;
+    return acc;
+  }, { error: 0, warning: 0 });
+
+  const docItems = buildDocDetails(transactionType, parseSegments);
+  const suggestionItems = validationIssues.filter((issue) => issue.suggestedValue).slice(0, 4);
+  const overview = buildOverviewSections(overviewText || '');
+
+  const togglePane = (pane) => {
+    setActivePane((prev) => (prev === pane ? '' : pane));
+  };
+
+  const paneButtonClass = (pane) => (
+    `w-10 h-10 rounded-full flex items-center justify-center border transition-colors ${
+      activePane === pane
+        ? 'bg-tertiary text-white border-tertiary'
+        : 'bg-white text-slate-500 border-slate-200/70 hover:text-slate-700'
+    }`
+  );
+
+  const renderSegment = (segment, index) => (
+    <details key={`${segment.id}-${segment.line_number}-${index}`} className="parsed-node group rounded-xl border border-slate-200/40 bg-white/70">
+      <summary className="flex items-center justify-between gap-2 px-3 py-2 cursor-pointer">
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded bg-surface-container-highest text-[10px] font-mono font-bold text-outline">{segment.id}</span>
+          <span className="text-[11px] font-semibold text-on-surface">Segment {segment.id}</span>
+        </div>
+        <span className="text-[10px] text-outline">Line {segment.line_number}</span>
+      </summary>
+      <div className="px-3 pb-3">
+        <div className="space-y-2">
+          {(segment.elements || []).length === 0 ? (
+            <p className="text-[11px] text-outline italic">No elements in this segment.</p>
+          ) : (
+            (segment.elements || []).map((element, idx) => (
+              <div key={`${segment.id}-${idx}`} className="flex items-start gap-3 text-[11px]">
+                <span className="text-outline w-40 shrink-0">{getElementLabel(segment.id, idx)}</span>
+                <span className="font-mono text-on-surface break-words flex-1 text-right">{element || '—'}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </details>
+  );
+
+  const renderLoopNode = (node, depth = 0) => (
+    <details key={`${node.name}-${depth}`} className="parsed-node group rounded-2xl border border-slate-200/40 bg-white/80">
+      <summary className="flex items-center justify-between gap-2 px-3 py-2 cursor-pointer">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary text-base">account_tree</span>
+          <div>
+            <p className="text-sm font-semibold text-on-surface">{node.label}</p>
+            <p className="text-[10px] text-outline">{node.name}</p>
+          </div>
+        </div>
+        <span className="text-[10px] text-outline">{node.segments?.length || 0} segments</span>
+      </summary>
+      <div className="px-3 pb-3 space-y-2">
+        {(node.segments || []).map((segment, idx) => renderSegment(segment, idx))}
+        {(node.children || []).map((child, idx) => (
+          <div key={`${child.name}-${idx}`} className="pl-3 border-l border-slate-200/40">
+            {renderLoopNode(child, depth + 1)}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
 
   return (
     <>
@@ -258,177 +962,355 @@ export function MasterParserPage() {
       </aside>
 
       <main className="ml-0 md:ml-64 pt-20 px-4 md:px-8 pb-8 min-h-screen bg-surface">
-        <div className="flex flex-col xl:flex-row gap-6 min-h-[calc(100vh-160px)]">
-
-          {/* EDI Viewer + Validation Log */}
-          <section className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface">
-            <div className="flex-[3] border-b border-slate-200/30 flex flex-col min-h-0">
-              <div className="px-6 py-3 flex justify-between items-center bg-white/50 border-b border-slate-200/10">
-                <div className="flex items-center gap-3">
-                  <span id="edi-filename" className="px-2 py-1 bg-surface-container-highest rounded text-[10px] font-mono font-bold text-outline">Loading...</span>
-                  <span className="text-xs text-outline italic">ANSI X12 Standard</span>
-                </div>
-                <div className="flex gap-2">
-                  <button className="material-symbols-outlined text-sm p-1.5 hover:bg-slate-100 rounded" type="button">search</button>
-                  <button className="material-symbols-outlined text-sm p-1.5 hover:bg-slate-100 rounded" type="button">file_download</button>
-                </div>
+        <div
+          ref={paneContainerRef}
+          className="flex flex-col xl:flex-row gap-4 xl:gap-0 min-h-[calc(100vh-140px)] xl:h-[calc(100vh-140px)] xl:overflow-hidden"
+        >
+          <section
+            className="pane-resizable pane-animate flex flex-col min-h-0 h-full bg-white/70 border border-slate-200/40 rounded-2xl overflow-hidden"
+            style={{ width: paneSizes.raw }}
+          >
+            <div className="px-4 py-3 flex items-center justify-between border-b border-slate-200/30 bg-white/60">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-slate-500 text-[18px]">receipt_long</span>
+                <h3 className="text-sm font-bold text-on-surface">Raw EDI</h3>
+                <span className="px-2 py-0.5 bg-surface-container-highest rounded text-[10px] font-mono font-bold text-outline">{fileName}</span>
               </div>
-              <div className="flex-1 overflow-auto p-6 font-mono text-sm leading-relaxed custom-scrollbar bg-[#fdfdfe]">
-                <div id="edi-content" className="flex-1"><p className="text-outline italic">Loading file data...</p></div>
+              <div className="flex items-center gap-2">
+                {rawSaveStatus ? <span className="text-[10px] text-outline">{rawSaveStatus}</span> : null}
+                <div className="flex items-center gap-1 rounded-full bg-slate-100/80 border border-slate-200/60 p-1">
+                  <button
+                    onClick={handleSaveEdits}
+                    disabled={!rawDirty || rawSaving}
+                    className="px-3 py-1.5 rounded-full text-[11px] font-semibold bg-primary text-white shadow-sm hover:shadow-md transition disabled:opacity-40"
+                    type="button"
+                  >
+                    {rawSaving ? 'Saving...' : 'Save edits'}
+                  </button>
+                  <button
+                    onClick={handleRevalidate}
+                    disabled={revalidateLoading || rawSaving || !rawContent.trim()}
+                    className="px-3 py-1.5 rounded-full text-[11px] font-semibold text-slate-700 hover:bg-white transition disabled:opacity-40"
+                    type="button"
+                  >
+                    {revalidateLoading ? 'Checking...' : 'Revalidate'}
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="flex-[2] flex flex-col bg-surface-container-low/30 overflow-hidden min-h-0">
-              <div className="px-6 py-3 flex items-center justify-between border-b border-slate-200/30">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-error">report</span>
-                  <h3 id="validation-error-count" className="text-sm font-bold tracking-tight">Validation Log</h3>
-                </div>
-                <div className="flex gap-2">
-                  <span className="px-2 py-0.5 bg-error-container text-on-error-container text-[10px] font-bold rounded-full">CRITICAL</span>
-                  <span className="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full">WARNING</span>
-                </div>
-              </div>
-              <div id="validation-log" className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                <p className="text-outline italic text-sm">Loading validation results...</p>
-              </div>
+            <div className="flex-1 p-4 overflow-auto custom-scrollbar bg-[#fdfdfe]">
+              <textarea
+                value={rawContent}
+                onChange={(event) => {
+                  setRawContent(event.target.value);
+                  setRawDirty(true);
+                  setRawSaveStatus('');
+                }}
+                placeholder={rawLoading ? 'Loading file data...' : 'Paste or edit raw EDI here.'}
+                spellCheck={false}
+                wrap="soft"
+                className="raw-editor custom-scrollbar"
+                disabled={rawLoading}
+              />
+            </div>
+            <div className="px-4 py-2 border-t border-slate-200/30 text-[10px] text-outline flex flex-wrap gap-3">
+              <span>Segments: {parseSegments.length || '—'}</span>
+              <span>Element: {parseDelimiters?.element || '*'}</span>
+              <span>Segment: {parseDelimiters?.segment || '~'}</span>
             </div>
           </section>
 
-          {/* Copilot Sidebar */}
-          <aside className="w-full xl:w-[340px] bg-tertiary-container/5 glass-blur border-l border-tertiary/10 flex flex-col z-40 relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-b from-white/40 to-white/10 pointer-events-none"></div>
-            <div className="relative z-10 flex flex-col h-full">
+          <div className="pane-resizer hidden xl:block flex-shrink-0" onMouseDown={startResize('raw')} role="separator" aria-label="Resize raw pane" />
 
-              {/* Header */}
-              <div className="p-5 border-b border-tertiary/10 bg-white/40">
-                <div className="flex items-center gap-3 mb-1">
-                  <div className="w-8 h-8 rounded-full bg-tertiary flex items-center justify-center text-white">
-                    <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
-                  </div>
-                  <h2 className="text-base font-bold tracking-tight text-on-surface">Copilot Summary</h2>
-                </div>
-                <p className="text-[10px] text-tertiary font-bold tracking-widest uppercase ml-11">Powered by Luminous AI</p>
+          <section
+            className="pane-resizable pane-animate flex flex-col min-h-0 h-full bg-white/70 border border-slate-200/40 rounded-2xl overflow-hidden"
+            style={{ width: paneSizes.tree }}
+          >
+            <div className="px-4 py-3 flex items-center justify-between border-b border-slate-200/30 bg-white/60">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[18px]">account_tree</span>
+                <h3 className="text-sm font-bold text-on-surface">Parsed Tree</h3>
+                {transactionType ? (
+                  <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold rounded-full">{transactionType}</span>
+                ) : null}
               </div>
+              <span className="text-[10px] text-outline">{parseSegments.length ? `${parseSegments.length} segments` : 'No segments'}</span>
+            </div>
+            <div className="flex-1 overflow-auto p-4 space-y-3 custom-scrollbar pane-wrap">
+              {parseTree ? renderLoopNode(parseTree) : (
+                <p className="text-outline italic text-sm">Load a file to view the parsed tree.</p>
+              )}
+            </div>
+          </section>
 
-              <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
+          <div className="pane-resizer hidden xl:block flex-shrink-0" onMouseDown={startResize('tree')} role="separator" aria-label="Resize errors pane" />
 
-                {/* File Analysis */}
-                <div>
-                  <h3 className="text-xs font-bold text-outline uppercase tracking-widest mb-3">File Analysis</h3>
-                  {copilotLoading ? (
+          <section
+            className="pane-resizable pane-animate flex flex-col min-h-0 h-full bg-surface-container-low/30 border border-slate-200/40 rounded-2xl overflow-hidden relative"
+            style={{ width: paneSizes.errors }}
+          >
+            <div className="px-4 py-3 flex items-center justify-between border-b border-slate-200/30">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-error">report</span>
+                <h3 className="text-sm font-bold tracking-tight">Errors</h3>
+                <span className="text-[10px] text-outline">{errorStats.error} errors · {errorStats.warning} warnings</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="px-2 py-0.5 bg-error-container text-on-error-container text-[10px] font-bold rounded-full">CRITICAL {errorStats.error}</span>
+                <span className="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full">WARNING {errorStats.warning}</span>
+              </div>
+            </div>
+            <div className="relative flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar pane-wrap">
+                {validationIssues.length === 0 ? (
+                  <div className="p-4 bg-white rounded-xl shadow-sm border-l-4 border-green-500 flex items-center gap-4">
+                    <span className="material-symbols-outlined text-green-600">check_circle</span>
+                    <p className="text-sm font-semibold text-green-700">No validation errors found. This file is clean.</p>
+                  </div>
+                ) : (
+                  validationIssues.map((issue, idx) => (
+                    <div key={`${issue.code}-${idx}`} className={`error-card p-4 bg-white rounded-xl shadow-sm border-l-4 ${issue.severity === 'warning' ? 'border-amber-400' : 'border-error'}`}>
+                      <div className="flex gap-3">
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${issue.severity === 'warning' ? 'bg-amber-100 text-amber-600' : 'bg-error-container text-error'}`}>
+                          <span className="material-symbols-outlined">report</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="text-sm font-bold text-on-surface">{issue.code}</h4>
+                            <span className="text-[10px] font-mono px-2 py-0.5 bg-surface-container rounded uppercase">{issue.severity}</span>
+                          </div>
+                          <p className="text-xs text-on-surface-variant mt-1 break-words">{issue.message}</p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {issue.loop ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">LOOP: {issue.loop}</span> : null}
+                            {issue.segmentId ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">SEG: {issue.segmentId}</span> : null}
+                            {issue.elementPosition ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">ELM: {issue.elementPosition}</span> : null}
+                            {issue.currentValue ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">VALUE: {issue.currentValue}</span> : null}
+                          </div>
+                          {issue.suggestedValue ? (
+                            <div className="mt-2 text-[10px] text-outline">
+                              Suggested: <span className="font-mono text-on-surface">{issue.suggestedValue}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {suggestionItems.length > 0 ? (
+                  <div className="mt-4 p-3 bg-white/60 border border-slate-200/40 rounded-xl">
+                    <h4 className="text-[11px] font-bold text-outline uppercase tracking-widest mb-2">Suggested Fixes</h4>
                     <div className="space-y-2">
-                      <div className="h-3 bg-outline-variant/20 rounded animate-pulse w-3/4"></div>
-                      <div className="h-3 bg-outline-variant/20 rounded animate-pulse w-full"></div>
-                      <div className="h-3 bg-outline-variant/20 rounded animate-pulse w-2/3"></div>
-                    </div>
-                  ) : copilotData ? (
-                    <ul className="space-y-2">
-                      {(copilotData.bullets || []).map((b, i) => (
-                        <li key={i} className="flex gap-2 items-start">
-                          <span className="material-symbols-outlined text-tertiary text-base mt-0.5">check_circle</span>
-                          <p className="text-sm leading-snug text-on-surface">{b}</p>
-                        </li>
+                      {suggestionItems.map((issue, idx) => (
+                        <div key={`${issue.code}-suggest-${idx}`} className="flex items-start justify-between gap-3 text-[11px]">
+                          <div className="flex-1">
+                            <p className="font-semibold text-on-surface">{issue.code}</p>
+                            <p className="text-[10px] text-outline break-words">{issue.message}</p>
+                          </div>
+                          <span className="font-mono text-on-surface break-words">{issue.suggestedValue}</span>
+                        </div>
                       ))}
-                      {(copilotData.critical_issues || []).map((issue, i) => (
-                        <li key={'err-' + i} className="flex gap-2 items-start">
-                          <span className="material-symbols-outlined text-error text-base mt-0.5">warning</span>
-                          <p className="text-sm leading-snug font-medium text-error">{issue}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-on-surface-variant italic">Load a file to see analysis.</p>
-                  )}
-                </div>
-
-                {/* Fix Assistant */}
-                <div className="bg-tertiary/10 rounded-2xl p-4 border border-tertiary/20">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="material-symbols-outlined text-tertiary">magic_button</span>
-                    <h3 className="text-sm font-bold text-tertiary">Fix Assistant</h3>
-                  </div>
-                  <p className="text-xs text-on-surface-variant mb-3">Automatically correct detected issues and save to database.</p>
-                  <div className="space-y-2 mb-3">
-                    <button onClick={() => applyFix('BHT05_TIME', '1200')} disabled={fixLoading || !currentFileId}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/60 border border-white/80 hover:border-tertiary/40 transition-colors text-[11px] disabled:opacity-40">
-                      <div className="flex items-center gap-2">
-                        <span className="material-symbols-outlined text-sm text-tertiary">history</span>
-                        <span>Suggested: <strong className="font-mono">1200</strong></span>
-                      </div>
-                      <span className="text-[10px] font-bold text-tertiary bg-tertiary/5 px-2 py-1 rounded">{fixLoading ? '...' : 'Apply'}</span>
-                    </button>
-                    <button onClick={() => applyFix('TAX_ID', '123456789')} disabled={fixLoading || !currentFileId}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/60 border border-white/80 hover:border-tertiary/40 transition-colors text-[11px] disabled:opacity-40">
-                      <div className="flex items-center gap-2">
-                        <span className="material-symbols-outlined text-sm text-tertiary">history</span>
-                        <span>Suggested: <strong className="font-mono">123456789</strong></span>
-                      </div>
-                      <span className="text-[10px] font-bold text-tertiary bg-tertiary/5 px-2 py-1 rounded">{fixLoading ? '...' : 'Apply'}</span>
-                    </button>
-                  </div>
-                  <button onClick={() => applyFix('AUTO')} disabled={fixLoading || !currentFileId}
-                    className="w-full py-2.5 bg-tertiary text-white rounded-xl text-sm font-bold shadow-lg shadow-tertiary/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-40">
-                    <span className="material-symbols-outlined text-sm">auto_fix_high</span>
-                    <span>{fixLoading ? 'Applying...' : 'Apply All Fixes'}</span>
-                  </button>
-                </div>
-
-                {/* Transaction Health */}
-                {copilotData && (
-                  <div>
-                    <h3 className="text-xs font-bold text-outline uppercase tracking-widest mb-2">Transaction Health</h3>
-                    <div className="h-2 w-full bg-surface-container-highest rounded-full overflow-hidden flex">
-                      <div className="h-full bg-primary transition-all" style={{ width: (copilotData.health_score || 0) + '%' }}></div>
-                      <div className="h-full bg-error transition-all" style={{ width: (100 - (copilotData.health_score || 0)) + '%' }}></div>
-                    </div>
-                    <div className="flex justify-between mt-1">
-                      <span className="text-[10px] font-bold text-primary">{copilotData.health_score || 0}% VALID</span>
-                      <span className="text-[10px] font-bold text-error">{100 - (copilotData.health_score || 0)}% ERROR</span>
                     </div>
                   </div>
-                )}
-
-                {/* Chat Messages */}
-                {chatMessages.length > 0 && (
-                  <div className="flex flex-col gap-2 max-h-52 overflow-y-auto">
-                    {chatMessages.map((msg, i) => (
-                      <div key={i} className={'text-xs p-2.5 rounded-xl ' + (msg.role === 'user' ? 'bg-primary/10 text-on-surface ml-4' : 'bg-white border border-outline-variant/20 text-on-surface mr-4')}>
-                        <span className="font-bold text-primary">{msg.role === 'user' ? 'You' : 'Copilot'}:</span>{' '}{msg.content}
-                      </div>
-                    ))}
-                    {chatLoading && (
-                      <div className="text-xs p-2.5 rounded-xl bg-white border border-outline-variant/20 text-on-surface-variant mr-4 animate-pulse">
-                        Copilot is thinking...
-                      </div>
-                    )}
-                  </div>
-                )}
+                ) : null}
               </div>
 
-              {/* Chat Input */}
-              <div className="p-4 bg-white/40 border-t border-tertiary/10">
+              {activePane ? (
+                <div className="pane-overlay absolute inset-0 z-10 bg-white/95 backdrop-blur-md p-4 pb-16">
+                  {activePane === 'copilot' ? (
+                    <div className="flex flex-col h-full">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-tertiary">auto_awesome</span>
+                          <h3 className="text-sm font-bold text-on-surface">Copilot</h3>
+                        </div>
+                        <button onClick={() => setActivePane('')} className="p-1 rounded-full hover:bg-slate-100" type="button">
+                          <span className="material-symbols-outlined text-sm">close</span>
+                        </button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto space-y-4 custom-scrollbar pane-wrap pr-1">
+                        <div>
+                          <h4 className="text-[11px] font-bold text-outline uppercase tracking-widest mb-2">Summary</h4>
+                          {copilotLoading ? (
+                            <div className="space-y-2">
+                              <div className="h-3 bg-outline-variant/20 rounded animate-pulse w-3/4"></div>
+                              <div className="h-3 bg-outline-variant/20 rounded animate-pulse w-full"></div>
+                              <div className="h-3 bg-outline-variant/20 rounded animate-pulse w-2/3"></div>
+                            </div>
+                          ) : copilotData ? (
+                            <ul className="space-y-2">
+                              {(copilotData.bullets || []).map((b, i) => (
+                                <li key={i} className="flex gap-2 items-start">
+                                  <span className="material-symbols-outlined text-tertiary text-base mt-0.5">check_circle</span>
+                                  <p className="text-sm leading-snug text-on-surface">{b}</p>
+                                </li>
+                              ))}
+                              {(copilotData.critical_issues || []).map((issue, i) => (
+                                <li key={'err-' + i} className="flex gap-2 items-start">
+                                  <span className="material-symbols-outlined text-error text-base mt-0.5">warning</span>
+                                  <p className="text-sm leading-snug font-medium text-error">{issue}</p>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-on-surface-variant italic">Load a file to see analysis.</p>
+                          )}
+                        </div>
+
+                        {copilotData ? (
+                          <div>
+                            <h4 className="text-[11px] font-bold text-outline uppercase tracking-widest mb-2">Transaction Health</h4>
+                            <div className="h-2 w-full bg-surface-container-highest rounded-full overflow-hidden flex">
+                              <div className="h-full bg-primary transition-all" style={{ width: (copilotData.health_score || 0) + '%' }}></div>
+                              <div className="h-full bg-error transition-all" style={{ width: (100 - (copilotData.health_score || 0)) + '%' }}></div>
+                            </div>
+                            <div className="flex justify-between mt-1">
+                              <span className="text-[10px] font-bold text-primary">{copilotData.health_score || 0}% VALID</span>
+                              <span className="text-[10px] font-bold text-error">{100 - (copilotData.health_score || 0)}% ERROR</span>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {chatMessages.length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {chatMessages.map((msg, i) => (
+                              <div key={i} className={'text-xs p-2.5 rounded-xl ' + (msg.role === 'user' ? 'bg-primary/10 text-on-surface ml-4' : 'bg-white border border-outline-variant/20 text-on-surface mr-4')}>
+                                <span className="font-bold text-primary">{msg.role === 'user' ? 'You' : 'Copilot'}:</span>{' '}{msg.content}
+                              </div>
+                            ))}
+                            {chatLoading ? (
+                              <div className="text-xs p-2.5 rounded-xl bg-white border border-outline-variant/20 text-on-surface-variant mr-4 animate-pulse">
+                                Copilot is thinking...
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="pt-3 border-t border-slate-200/40">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
+                            placeholder={currentFileId ? 'Ask Copilot...' : 'Load a file first...'}
+                            disabled={chatLoading || !currentFileId}
+                            className="flex-1 px-3 py-2 rounded-xl bg-white border border-tertiary/20 text-sm focus:ring-2 focus:ring-tertiary/20 focus:outline-none placeholder:text-on-surface-variant/50 disabled:opacity-50"
+                          />
+                          <button
+                            onClick={sendChatMessage}
+                            disabled={chatLoading || !currentFileId || !chatInput.trim()}
+                            className="w-9 h-9 rounded-xl bg-tertiary text-white flex items-center justify-center hover:bg-tertiary/90 transition-colors disabled:opacity-40"
+                            type="button"
+                          >
+                            <span className="material-symbols-outlined text-sm">send</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {activePane === 'docs' ? (
+                    <div className="flex flex-col h-full">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-primary">menu_book</span>
+                          <h3 className="text-sm font-bold text-on-surface">Doc Details</h3>
+                        </div>
+                        <button onClick={() => setActivePane('')} className="p-1 rounded-full hover:bg-slate-100" type="button">
+                          <span className="material-symbols-outlined text-sm">close</span>
+                        </button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pane-wrap pr-1">
+                        {docItems.length ? (
+                          docItems.map((item, idx) => (
+                            <details key={`${item.title}-${idx}`} className="doc-dropdown rounded-xl border border-slate-200/50 bg-white">
+                              <summary className="flex items-center justify-between gap-3 px-3 py-2 cursor-pointer">
+                                <div>
+                                  <h4 className="text-sm font-semibold text-on-surface">{item.title}</h4>
+                                  <p className="text-[10px] text-outline">{item.summary}</p>
+                                </div>
+                                <span className="material-symbols-outlined text-base text-primary">expand_more</span>
+                              </summary>
+                              <div className="px-3 pb-3 text-xs text-on-surface-variant space-y-1">
+                                {item.items.map((row, rowIdx) => (
+                                  <p key={`${item.title}-${rowIdx}`} className="break-words">{row}</p>
+                                ))}
+                              </div>
+                            </details>
+                          ))
+                        ) : (
+                          <p className="text-sm text-on-surface-variant italic">No doc details mapped for {transactionType || 'this'}.</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {activePane === 'overview' ? (
+                    <div className="flex flex-col h-full">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-primary">insights</span>
+                          <h3 className="text-sm font-bold text-on-surface">{overview.title}</h3>
+                        </div>
+                        <button onClick={() => setActivePane('')} className="p-1 rounded-full hover:bg-slate-100" type="button">
+                          <span className="material-symbols-outlined text-sm">close</span>
+                        </button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto custom-scrollbar pane-wrap pr-1 space-y-3">
+                        {overview.sections.length ? (
+                          overview.sections.map((section, idx) => (
+                            <div key={`${section.title}-${idx}`} className="p-3 bg-white rounded-xl border border-slate-200/40">
+                              {section.title ? (
+                                <h4 className="text-[11px] font-bold text-outline uppercase tracking-widest mb-2">{section.title}</h4>
+                              ) : null}
+                              <div className="space-y-1">
+                                {section.items.map((item, lineIdx) => (
+                                  <div key={`${section.title}-${lineIdx}`} className="flex items-start justify-between gap-3 text-xs">
+                                    {item.label ? (
+                                      <>
+                                        <span className="text-outline w-32 shrink-0">{item.label}</span>
+                                        <span className="font-mono text-on-surface text-right break-words flex-1">{item.value}</span>
+                                      </>
+                                    ) : (
+                                      <span className="text-on-surface-variant">{item.text}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-on-surface-variant italic">No overview available.</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="relative z-20 border-t border-slate-200/40 bg-white/90 backdrop-blur-sm px-4 py-3 flex items-center justify-between">
+                <button
+                  onClick={handleAutoFix}
+                  disabled={rawSaving || !currentFileId || validationIssues.length === 0}
+                  className="px-4 py-2 bg-tertiary text-white rounded-xl text-xs font-bold shadow-lg shadow-tertiary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-40"
+                  type="button"
+                >
+                  {rawSaving ? 'Fixing...' : 'Fix errors'}
+                </button>
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
-                    placeholder={currentFileId ? 'Ask Copilot a question...' : 'Load a file first...'}
-                    disabled={chatLoading || !currentFileId}
-                    className="flex-1 px-3 py-2 rounded-xl bg-white border border-tertiary/20 text-sm focus:ring-2 focus:ring-tertiary/20 focus:outline-none placeholder:text-on-surface-variant/50 disabled:opacity-50"
-                  />
-                  <button
-                    onClick={sendChatMessage}
-                    disabled={chatLoading || !currentFileId || !chatInput.trim()}
-                    className="w-9 h-9 rounded-xl bg-tertiary text-white flex items-center justify-center hover:bg-tertiary/90 transition-colors disabled:opacity-40"
-                    type="button"
-                  >
-                    <span className="material-symbols-outlined text-sm">send</span>
+                  <button className={paneButtonClass('copilot')} onClick={() => togglePane('copilot')} aria-label="Open Copilot panel" type="button">
+                    <span className="material-symbols-outlined text-[18px]">auto_awesome</span>
+                  </button>
+                  <button className={paneButtonClass('docs')} onClick={() => togglePane('docs')} aria-label="Open doc details" type="button">
+                    <span className="material-symbols-outlined text-[18px]">menu_book</span>
+                  </button>
+                  <button className={paneButtonClass('overview')} onClick={() => togglePane('overview')} aria-label="Open overview" type="button">
+                    <span className="material-symbols-outlined text-[18px]">insights</span>
                   </button>
                 </div>
               </div>
             </div>
-          </aside>
+          </section>
         </div>
       </main>
 

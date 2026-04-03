@@ -35,3 +35,15 @@ class S3Service:
             return True
         except ClientError:
             return False
+
+    def get_file_bytes(self, s3_key: str) -> bytes:
+        response = self.client.get_object(Bucket=self.bucket, Key=s3_key)
+        return response["Body"].read()
+
+    def put_file_bytes(self, s3_key: str, file_bytes: bytes, content_type: str = "text/plain") -> None:
+        self.client.put_object(
+            Bucket=self.bucket,
+            Key=s3_key,
+            Body=file_bytes,
+            ContentType=content_type,
+        )
