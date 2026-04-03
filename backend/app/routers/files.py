@@ -19,7 +19,7 @@ router = APIRouter()
 @router.get("/files", response_model=List[EDIFileResponse])
 async def list_files(
     skip: int = 0,
-    limit: int = 20,
+    limit: int = 100,
     db: AsyncSession = Depends(get_db),
     user: UserContext = Depends(get_current_user),
 ):
@@ -29,6 +29,7 @@ async def list_files(
     result = await db.execute(
         select(EDIFile)
         .where(func.lower(EDIFile.transaction_type).in_(allowed_types))
+        .order_by(EDIFile.uploaded_at.desc())
         .offset(skip)
         .limit(limit)
     )
