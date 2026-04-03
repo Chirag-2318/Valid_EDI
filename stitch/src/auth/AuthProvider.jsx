@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { onIdTokenChanged, signInWithEmailAndPassword, signInWithPopup, signOut } from 'firebase/auth';
+import { authFetch } from './api';
 import { auth, firebaseEnabled, googleProvider } from './firebase';
 import { permissionsForRole } from './permissions';
 
@@ -26,12 +27,7 @@ export function AuthProvider({ children }) {
       }
 
       try {
-        const token = await user.getIdToken();
-        const response = await fetch('/api/auth/me', {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+        const response = await authFetch('/api/auth/me');
 
         if (response.ok) {
           const payload = await response.json();
