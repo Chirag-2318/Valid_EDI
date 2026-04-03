@@ -1,8 +1,28 @@
-﻿from validedi import parse, validate, export_json, extract_claims, extract_payments, extract_enrollments
+﻿import os
+import tempfile
+
+from validedi import parse, validate, export_json, extract_claims, extract_payments, extract_enrollments
 from validedi.llm import explain
 
 
 class EDIService:
+    def _parse_with_temp_file(self, file_bytes: bytes, original_filename: str):
+        _, ext = os.path.splitext(original_filename)
+        suffix = ext if ext else ".edi"
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as handle:
+                handle.write(file_bytes)
+                handle.flush()
+                temp_path = handle.name
+            return parse(temp_path)
+        finally:
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
     def process_file(self, file_bytes: bytes, original_filename: str) -> dict:
         try:
             content = file_bytes.decode("utf-8")
@@ -11,7 +31,13 @@ class EDIService:
 
         try:
             # Parse once, then pass ParsedEDI to validate (NEW in v0.3.0)
-            edi_result = parse(content)
+            try:
+                edi_result = parse(content)
+            except OSError as e:
+                # validedi may treat raw content as a file path; fall back to temp file
+                if getattr(e, "errno", None) != 36:
+                    raise
+                edi_result = self._parse_with_temp_file(file_bytes, original_filename)
             val_result = validate(edi_result)  # Now accepts ParsedEDI object
         except Exception as e:
             raise ValueError(f"Failed to process EDI file '{original_filename}': {e}")
