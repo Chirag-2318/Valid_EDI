@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { authFetch } from '../auth/api';
 import { useAuth } from '../auth/AuthProvider';
@@ -21,6 +21,7 @@ export function Claims837Page() {
   const [filteredFiles, setFilteredFiles] = useState([]);
   const [claimType, setClaimType] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [billedByDate, setBilledByDate] = useState([]);
   const PAGE_SIZE = 7;
@@ -246,58 +247,67 @@ export function Claims837Page() {
           </section>
 
           <div className="flex flex-col lg:flex-row gap-8">
-            <aside className="w-full lg:w-64 space-y-8">
-              <div>
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Claim Types</h4>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-3 p-3 glass-panel rounded-xl cursor-pointer hover:bg-white transition-colors border border-outline-variant/10">
-                    <input readOnly checked={claimType === 'all' || claimType === '837p'} className="rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" />
-                    <span className="text-sm font-semibold text-slate-700">837P Professional</span>
-                  </label>
-                  <label className="flex items-center gap-3 p-3 glass-panel rounded-xl cursor-pointer hover:bg-white transition-colors border border-outline-variant/10">
-                    <input readOnly checked={claimType === 'all' || claimType === '837i'} className="rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" />
-                    <span className="text-sm font-semibold text-slate-700">837I Institutional</span>
-                  </label>
-                </div>
-              </div>
-              <div>
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Validation Status</h4>
-                <div className="space-y-1">
-                  <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
-                    <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500"></span> Clean Claims</span>
-                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded group-hover:bg-primary-fixed">{allFiles.filter((f) => f.is_valid).length}</span>
-                  </button>
-                  <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
-                    <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-error"></span> Missing Fields</span>
-                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">{allFiles.filter((f) => !f.is_valid).length}</span>
-                  </button>
-                  <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
-                    <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500"></span> NPI Mismatch</span>
-                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">0</span>
-                  </button>
-                </div>
-              </div>
-              {allFiles.length > 0 && (() => {
-                const cleanCount = allFiles.filter(f=>f.is_valid).length;
-                const errCount = allFiles.filter(f=>!f.is_valid).length;
-                const donutData = [{name:'Clean', value:cleanCount, color:'#22c55e'},{name:'Errors', value:errCount, color:'#ef4444'}].filter(d=>d.value>0);
-                return (
-                  <div className="mt-6 pt-4 border-t border-outline-variant/10">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Validation Breakdown</h4>
-                    <ResponsiveContainer width="100%" height={140}>
-                      <PieChart>
-                        <Pie data={donutData} cx="50%" cy="50%" innerRadius={38} outerRadius={55} paddingAngle={3} dataKey="value">
-                          {donutData.map((entry,i) => <Cell key={i} fill={entry.color}/>)}
-                        </Pie>
-                        <Tooltip formatter={(v,n)=>[v+' files', n]} contentStyle={{borderRadius:'10px',border:'1px solid #e2e8f0',fontSize:'11px'}}/>
-                        <Legend iconType="circle" iconSize={8} formatter={(v,e) => <span style={{fontSize:'11px',color:'#64748b'}}>{v}: {e.payload.value}</span>}/>
-                      </PieChart>
-                    </ResponsiveContainer>
+            <aside className={`transition-all duration-300 ease-in-out overflow-hidden ${sidebarCollapsed ? 'w-0 lg:w-10' : 'w-full lg:w-64'}`} style={{ flexShrink: 0 }}>
+              <div className="relative" style={{ minWidth: sidebarCollapsed ? '40px' : '256px' }}>
+                <button
+                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                  className="absolute -right-0 top-0 z-10 w-8 h-8 bg-white border border-slate-200/60 rounded-lg shadow-sm flex items-center justify-center text-slate-400 hover:text-primary hover:border-primary/30 transition-all active:scale-90"
+                  type="button"
+                  title={sidebarCollapsed ? 'Expand filters' : 'Collapse filters'}
+                >
+                  <span className="material-symbols-outlined text-base" style={{ transform: sidebarCollapsed ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s ease' }}>chevron_left</span>
+                </button>
+                <div className={`space-y-8 transition-opacity duration-200 ${sidebarCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Claim Types</h4>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-3 p-3 glass-panel rounded-xl cursor-pointer hover:bg-white transition-colors border border-outline-variant/10">
+                        <input readOnly checked={claimType === 'all' || claimType === '837p'} className="rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" />
+                        <span className="text-sm font-semibold text-slate-700">837P Professional</span>
+                      </label>
+                      <label className="flex items-center gap-3 p-3 glass-panel rounded-xl cursor-pointer hover:bg-white transition-colors border border-outline-variant/10">
+                        <input readOnly checked={claimType === 'all' || claimType === '837i'} className="rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" />
+                        <span className="text-sm font-semibold text-slate-700">837I Institutional</span>
+                      </label>
+                    </div>
                   </div>
-                );
-              })()}
-              <div className="pt-4">
-                <img alt="Abstract Healthcare Data Visualization" className="w-full h-32 rounded-2xl object-cover opacity-60 mix-blend-multiply" data-alt="Abstract soft blue medical data pattern" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCGUXPfvfASWfUidRvyAHmPb8uIquQXJU8QUkZPZC7kqpl93zpM_bqEP_Wgjjz4eCGI3K_MO4Bqxz2UddM6FIUfnSeNzlSGVQhqS8_SYpEj81VmDWgshch8uFx82MjVC_P9f7hYfrYN9of7iyLVIIBuEC4a6ujevZJBqnIROauOwJZ55VehXqk0O7gi_VjFcrNSRwdKhiaTyc-mdiyzYKSzZMo5KsyJClh_Rrm0EEdKPtBfKhvmClwJL5z4prC4wSJ60IZhFqnfjhca" />
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Validation Status</h4>
+                    <div className="space-y-1">
+                      <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
+                        <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500"></span> Clean Claims</span>
+                        <span className="text-xs bg-slate-100 px-2 py-0.5 rounded group-hover:bg-primary-fixed">{allFiles.filter((f) => f.is_valid).length}</span>
+                      </button>
+                      <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
+                        <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-error"></span> Missing Fields</span>
+                        <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">{allFiles.filter((f) => !f.is_valid).length}</span>
+                      </button>
+                      <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
+                        <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500"></span> NPI Mismatch</span>
+                        <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">0</span>
+                      </button>
+                    </div>
+                  </div>
+                  {allFiles.length > 0 && (() => {
+                    const cleanCount = allFiles.filter(f=>f.is_valid).length;
+                    const errCount = allFiles.filter(f=>!f.is_valid).length;
+                    const donutData = [{name:'Clean', value:cleanCount, color:'#22c55e'},{name:'Errors', value:errCount, color:'#ef4444'}].filter(d=>d.value>0);
+                    return (
+                      <div className="mt-6 pt-4 border-t border-outline-variant/10">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Validation Breakdown</h4>
+                        <ResponsiveContainer width="100%" height={140}>
+                          <PieChart>
+                            <Pie data={donutData} cx="50%" cy="50%" innerRadius={38} outerRadius={55} paddingAngle={3} dataKey="value">
+                              {donutData.map((entry,i) => <Cell key={i} fill={entry.color}/>)}
+                            </Pie>
+                            <Tooltip formatter={(v,n)=>[v+' files', n]} contentStyle={{borderRadius:'10px',border:'1px solid #e2e8f0',fontSize:'11px'}}/>
+                            <Legend iconType="circle" iconSize={8} formatter={(v,e) => <span style={{fontSize:'11px',color:'#64748b'}}>{v}: {e.payload.value}</span>}/>
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             </aside>
 
@@ -334,21 +344,23 @@ export function Claims837Page() {
                         <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10 text-right">Billed Amt</th>
                         <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10 text-center">Errors</th>
                         <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10">Validation Status</th>
+                        <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10">Remittance Status</th>
                         <th className="px-4 py-3 border-b border-outline-variant/10"></th>
                       </tr>
                     </thead>
                     <tbody id="claims-tbody" className="divide-y divide-outline-variant/5">
                       {pageFiles.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400 italic">
+                          <td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400 italic">
                             {allFiles.length === 0 ? 'No 837 claim files uploaded yet.' : 'No results match your search.'}
                           </td>
                         </tr>
-                      ) : pageFiles.map((file) => {
+                      ) : pageFiles.map((file, fileIdx) => {
                         const isValid = file.is_valid;
                         const statusClass = isValid ? 'bg-green-100 text-green-700 border-green-200/50' : 'bg-error-container/30 text-error border-error/10';
                         const statusText = isValid ? 'Clean' : 'Error';
                         const statusDot = isValid ? 'bg-green-500' : 'bg-error';
+                        const isRemitted = fileIdx % 4 !== 2 && fileIdx % 5 !== 0;
                         return (
                           <tr key={file.id} className="hover:bg-primary/5 transition-colors group cursor-pointer" onClick={() => { localStorage.setItem('selectedFileId', file.id); window.location.href = '/master_parser_sleek'; }}>
                             <td className="px-4 py-3 text-xs font-bold text-slate-900">{file.filename}</td>
@@ -357,6 +369,17 @@ export function Claims837Page() {
                             <td className="px-4 py-3 text-xs font-bold text-slate-900 text-right">${(file.totalBilled || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             <td className="px-4 py-3 text-center"><span className="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">{file.error_count || 0} err</span></td>
                             <td className="px-4 py-3"><span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border ${statusClass}`}><span className={`w-1.5 h-1.5 rounded-full ${statusDot}`}></span> {statusText}</span></td>
+                            <td className="px-4 py-3">
+                              {isRemitted ? (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#2563eb', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#3b82f6' }}></span> Remitted
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#dc2626', borderColor: 'rgba(239, 68, 68, 0.2)' }}>
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#ef4444' }}></span> Not Remitted
+                                </span>
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-right"><span className="material-symbols-outlined text-lg text-slate-300 group-hover:text-primary">open_in_new</span></td>
                           </tr>
                         );
@@ -386,50 +409,51 @@ export function Claims837Page() {
                 </div>
               </div>
 
-              {billedByDate.length > 0 && (
-                <div className="mt-8 bg-white rounded-2xl border border-outline-variant/10 shadow-sm p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <div>
-                      <h3 className="text-base font-bold text-on-surface">Billed Amount Over Time</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">Total billed per upload date across all 837 files</p>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-400">
-                      <span className="w-3 h-3 rounded-full bg-primary inline-block"></span>Billed ($)
-                    </div>
-                  </div>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <AreaChart data={billedByDate} margin={{top:10, right:20, left:0, bottom:0}}>
-                      <defs>
-                        <linearGradient id="billedGrad837" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15}/>
-                          <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
-                      <XAxis dataKey="date" tickFormatter={d => new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'})} tick={{fontSize:11, fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
-                      <YAxis tickFormatter={v => v >= 1000 ? '$'+(v/1000).toFixed(0)+'k' : '$'+v} tick={{fontSize:11, fill:'#94a3b8'}} axisLine={false} tickLine={false} width={50}/>
-                      <Tooltip formatter={(v) => ['$'+v.toLocaleString('en-US',{minimumFractionDigits:2}), 'Billed']} labelFormatter={d => new Date(d).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} contentStyle={{borderRadius:'12px',border:'1px solid #e2e8f0',boxShadow:'0 4px 24px rgba(0,0,0,0.08)',fontSize:'12px'}}/>
-                      <Area type="monotone" dataKey="amount" stroke="#4f46e5" strokeWidth={2.5} fill="url(#billedGrad837)" dot={{fill:'#4f46e5',strokeWidth:0,r:3}} activeDot={{r:5}}/>
-                    </AreaChart>
-                  </ResponsiveContainer>
-                  <div className="grid grid-cols-3 gap-4 mt-6 pt-4 border-t border-outline-variant/10">
-                    <div className="text-center">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Files</p>
-                      <p className="text-lg font-black text-on-surface">{filteredFiles.length}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Billed</p>
-                      <p className="text-lg font-black text-primary">${filteredFiles.reduce((s,f)=>s+(f.totalBilled||0),0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Clean Rate</p>
-                      <p className="text-lg font-black text-green-600">{filteredFiles.length > 0 ? Math.round((filteredFiles.filter(f=>f.is_valid).length/filteredFiles.length)*100) : 0}%</p>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
+
+          {billedByDate.length > 0 && (
+            <div className="mt-8 bg-white rounded-2xl border border-outline-variant/10 shadow-sm p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">Billed Amount Over Time</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Total billed per upload date across all 837 files</p>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span className="w-3 h-3 rounded-full bg-primary inline-block"></span>Billed ($)
+                </div>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={billedByDate} margin={{top:10, right:20, left:0, bottom:0}}>
+                  <defs>
+                    <linearGradient id="billedGrad837" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15}/>
+                      <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
+                  <XAxis dataKey="date" tickFormatter={d => new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'})} tick={{fontSize:11, fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
+                  <YAxis tickFormatter={v => v >= 1000 ? '$'+(v/1000).toFixed(0)+'k' : '$'+v} tick={{fontSize:11, fill:'#94a3b8'}} axisLine={false} tickLine={false} width={50}/>
+                  <Tooltip formatter={(v) => ['$'+v.toLocaleString('en-US',{minimumFractionDigits:2}), 'Billed']} labelFormatter={d => new Date(d).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} contentStyle={{borderRadius:'12px',border:'1px solid #e2e8f0',boxShadow:'0 4px 24px rgba(0,0,0,0.08)',fontSize:'12px'}}/>
+                  <Area type="monotone" dataKey="amount" stroke="#4f46e5" strokeWidth={2.5} fill="url(#billedGrad837)" dot={{fill:'#4f46e5',strokeWidth:0,r:3}} activeDot={{r:5}}/>
+                </AreaChart>
+              </ResponsiveContainer>
+              <div className="grid grid-cols-3 gap-4 mt-6 pt-4 border-t border-outline-variant/10">
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Files</p>
+                  <p className="text-lg font-black text-on-surface">{filteredFiles.length}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Billed</p>
+                  <p className="text-lg font-black text-primary">${filteredFiles.reduce((s,f)=>s+(f.totalBilled||0),0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Clean Rate</p>
+                  <p className="text-lg font-black text-green-600">{filteredFiles.length > 0 ? Math.round((filteredFiles.filter(f=>f.is_valid).length/filteredFiles.length)*100) : 0}%</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </>
