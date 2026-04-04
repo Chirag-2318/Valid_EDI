@@ -54,6 +54,27 @@ async def upload_edi(
         # Save validation errors
         await db_service.save_validation_errors(db=db, file_id=edi_file.id, issues=edi_data["issues"])
 
+        # Write activity log
+        try:
+            from app.db_models import ActivityLog
+            log = ActivityLog(
+                user_id=user.uid,
+                action="file_upload",
+                resource_type="edi_file",
+                resource_id=edi_file.id,
+                resource_name=original_filename,
+                extra_data={
+                    "transaction_type": edi_data.get("transaction_type"),
+                    "is_valid": edi_data.get("is_valid"),
+                    "error_count": edi_data.get("error_count"),
+                    "file_size": len(file_bytes),
+                },
+            )
+            db.add(log)
+            await db.commit()
+        except Exception:
+            pass
+
         return EDIFileResponse.model_validate(edi_file)
 
     except HTTPException:

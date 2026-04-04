@@ -1,4 +1,4 @@
-﻿﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { authFetch } from '../auth/api';
 import { useAuth } from '../auth/AuthProvider';
@@ -163,7 +163,6 @@ export function DashboardPage() {
       recentAudits.innerHTML = '';
       items
         .slice()
-        .reverse()
         .forEach((item) => {
           const card = document.createElement('div');
           card.className = 'glass-panel p-5 rounded-[20px] border border-outline-variant/10 shadow-sm transition-all duration-300';
@@ -194,7 +193,7 @@ export function DashboardPage() {
 
     async function hydrateFromAPI() {
       try {
-        const files = await authFetch('/api/files').then((r) => r.json());
+        const files = await authFetch('/api/files?limit=1000').then((r) => r.json());
         if (!Array.isArray(files)) return;
         totalProcessed = files.length;
         totalValid = files.filter(f => f.is_valid).length;
@@ -219,7 +218,8 @@ export function DashboardPage() {
         });
         setUploadTrend(Object.values(byDate).slice(-7));
       } catch(e) {
-        hydrateFromAPI();
+        console.error('Failed to hydrate from API:', e);
+        hydrateFromStorage();
       }
     }
 
@@ -233,55 +233,66 @@ export function DashboardPage() {
 
     async function processFiles(fileList) {
       const files = Array.from(fileList || []);
-      if (!files.length) {
-        return;
-      }
-      if (uploadStatus) {
-        uploadStatus.textContent = 'Uploading ' + files.length + ' file(s)...';
-      }
+      if (!files.length) return;
+      if (uploadStatus) uploadStatus.textContent = 'Uploading ' + files.length + ' file(s)...';
 
       const saved = readSubmissions();
+
       for (const file of files) {
+        const isZip = file.name.toLowerCase().endsWith('.zip');
         const formData = new FormData();
         formData.append('file', file);
         try {
-          const response = await authFetch('/api/upload', {
-            method: 'POST',
-            body: formData
-          });
-          if (!response.ok) {
-            throw new Error('Upload failed');
-          }
-          const payload = await response.json();
-          const type = String(payload.transaction_type || 'unknown').toUpperCase();
-
-          const item = {
-            id: payload.id,
-            filename: payload.filename || file.name,
-            type: type,
-            errorCount: payload.error_count || 0,
-            isValid: payload.is_valid || false,
-            s3_url: payload.s3_url || '',
-            timeLabel: 'Just now'
-          };
-          saved.push(item);
-          totalProcessed += 1;
-          if (item.errorCount === 0) {
-            totalValid += 1;
+          if (isZip) {
+            const response = await authFetch('/api/batch', { method: 'POST', body: formData });
+            if (!response.ok) throw new Error('Batch upload failed');
+            const payload = await response.json();
+            const reports = payload.reports || [];
+            const fileIds = payload.file_ids || [];
+            for (let i = 0; i < reports.length; i++) {
+              const report = reports[i];
+              const item = {
+                id: fileIds[i] || null,
+                filename: report.filename || file.name,
+                type: String(report.parse_result?.transaction_type || 'unknown').toUpperCase(),
+                errorCount: (report.validation_result?.issues || []).filter(x => x.severity === 'error').length,
+                isValid: report.validation_result?.valid || false,
+                s3_url: '',
+                timeLabel: 'Just now'
+              };
+              saved.push(item);
+              totalProcessed += 1;
+              if (item.errorCount === 0) totalValid += 1;
+            }
+            if (uploadStatus) uploadStatus.textContent = 'ZIP processed: ' + reports.length + ' file(s) extracted.';
+          } else {
+            const response = await authFetch('/api/upload', { method: 'POST', body: formData });
+            if (!response.ok) throw new Error('Upload failed');
+            const payload = await response.json();
+            const item = {
+              id: payload.id,
+              filename: payload.filename || file.name,
+              type: String(payload.transaction_type || 'unknown').toUpperCase(),
+              errorCount: payload.error_count || 0,
+              isValid: payload.is_valid || false,
+              s3_url: payload.s3_url || '',
+              timeLabel: 'Just now'
+            };
+            saved.push(item);
+            totalProcessed += 1;
+            if (item.errorCount === 0) totalValid += 1;
           }
         } catch (error) {
-          if (uploadStatus) {
-            uploadStatus.textContent = 'Upload failed for ' + file.name + '. Please try again.';
-          }
+          if (uploadStatus) uploadStatus.textContent = 'Upload failed for ' + file.name + '. Please try again.';
         }
       }
 
       writeSubmissions(saved);
       updateSummary();
       renderAudits(saved);
-      if (uploadStatus) {
-        uploadStatus.textContent = 'Upload complete. ' + totalProcessed + ' file(s) processed.';
-      }
+      if (uploadStatus) uploadStatus.textContent = 'Upload complete. ' + totalProcessed + ' file(s) processed.';
+      // Re-fetch from API to get accurate IDs and data for newly uploaded files
+      await hydrateFromAPI();
     }
 
     const handleUploadTrigger = () => {
@@ -555,9 +566,9 @@ export function DashboardPage() {
                     upload_file
                   </span>
                 </div>
-                <h2 className="text-2xl font-black text-on-surface mb-3">Drop 837, 835, or 834 files here</h2>
+                <h2 className="text-2xl font-black text-on-surface mb-3">Drop 837, 835, 834 files or a ZIP here</h2>
                 <p className="text-on-surface-variant font-medium mb-10 max-w-[280px] mx-auto">
-                  Upload HIPAA-compliant transactions for real-time validation and parsing.
+                  Upload individual EDI files or a ZIP archive containing multiple EDI files.
                 </p>
                 <div className="flex flex-col gap-4 items-center w-full">
                   <button
@@ -567,8 +578,8 @@ export function DashboardPage() {
                   >
                     Select Files from Cloud
                   </button>
-                  <input className="hidden" id="file-upload" type="file" accept=".edi,.txt,.dat,.x12" multiple />
-                  <span className="text-[10px] uppercase tracking-widest text-outline font-bold">Max file size 256MB</span>
+                  <input className="hidden" id="file-upload" type="file" accept=".edi,.txt,.dat,.x12,.zip" multiple />
+                  <span className="text-[10px] uppercase tracking-widest text-outline font-bold">Supports .edi, .txt, .x12, .zip � Max 256MB</span>
                   <p className="text-xs font-medium text-outline" id="upload-status">
                     No files uploaded yet.
                   </p>
@@ -629,6 +640,13 @@ export function DashboardPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
 
 
 

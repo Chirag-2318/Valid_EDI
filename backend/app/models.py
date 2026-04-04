@@ -99,6 +99,7 @@ class BatchResult(BaseModel):
     passed: int
     failed: int
     reports: list[ParsedFileReport]
+    file_ids: list[str] = Field(default_factory=list)
 
 
 LoopNode.model_rebuild()

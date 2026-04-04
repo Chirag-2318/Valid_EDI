@@ -150,3 +150,53 @@ def _rule_based_fallback(question: str, context: dict) -> str:
         f"**Status:** {status}\n\n"
         f"Ask about members, procedure codes, charges, errors, or provider details."
     )
+async def ask_llm_fix_edi(raw_edi: str, errors: list) -> str:
+    """Send raw EDI + ALL validation errors to Groq. Returns fully corrected EDI or empty string."""
+    token = os.getenv("GROQ_API_KEY", "")
+    if not token:
+        return ""
+    try:
+        from groq import Groq
+        import asyncio
+        client = Groq(api_key=token)
+        system_prompt = (
+            "You are an expert X12 HIPAA 5010 EDI editor.\n"
+            "You will receive a raw EDI file and a list of ALL validation errors found in it.\n"
+            "Fix EVERY error in the list and return the COMPLETE corrected EDI file.\n\n"
+            "STRICT RULES:\n"
+            "1. Return ONLY the raw EDI text. Zero explanation, zero markdown, zero code fences.\n"
+            "2. Preserve segment terminator (~), element separator (*), sub-element separator (:).\n"
+            "3. For missing required segments (NM1*41, NM1*40, NM1*85, NM1*IL, NM1*PR): "
+            "add them in the correct loop position with realistic placeholder values.\n"
+            "4. For invalid values (e.g. diagnosis code with decimal like J20.9): remove the decimal (J209).\n"
+            "5. For invalid NPI numbers: replace with a valid 10-digit NPI (e.g. 1234567893).\n"
+            "6. For amount format errors: ensure amounts are numeric with up to 2 decimal places.\n"
+            "7. Do NOT change anything not listed as an error.\n"
+            "8. Output must start with ISA* and end with IEA*.\n"
+            "9. Every segment must end with ~.\n"
+            "Output the corrected EDI file now:"
+        )
+        errors_text = json.dumps(errors, indent=2)
+        user_prompt = f"VALIDATION ERRORS TO FIX:\n{errors_text}\n\nRAW EDI FILE:\n{raw_edi}"
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, lambda: client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+            max_tokens=8192,
+        ))
+        result = response.choices[0].message.content.strip()
+        if "```" in result:
+            lines = result.splitlines()
+            result = "\n".join(l for l in lines if not l.startswith("```")).strip()
+        if "ISA*" not in result:
+            return ""
+        isa_pos = result.find("ISA*")
+        if isa_pos > 0:
+            result = result[isa_pos:]
+        return result
+    except Exception:
+        return ""

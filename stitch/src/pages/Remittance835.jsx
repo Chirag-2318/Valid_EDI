@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { authFetch } from '../auth/api';
 import { useAuth } from '../auth/AuthProvider';
@@ -34,7 +34,7 @@ export function Remittance835Page() {
   useEffect(() => {
     async function loadRemittanceData() {
       try {
-        const files = await authFetch('/api/files').then((r) => r.json());
+        const files = await authFetch('/api/files?limit=1000').then((r) => r.json());
         const remitFiles = Array.isArray(files) ? files.filter((f) => f.transaction_type === '835') : [];
         const dateMap = {};
         let totalBilled = 0;
@@ -44,12 +44,24 @@ export function Remittance835Page() {
             let fileBilled = 0;
             try {
               const pr = await authFetch('/api/files/' + file.id + '/parse-result').then((r) => r.json());
-              const claims = pr?.raw_json?.structured_data || pr?.raw_json?.json_export?.claims || [];
-              for (const claim of claims) {
-                const charge = parseFloat(claim.total_charge || claim.billed_amount || 0);
-                fileBilled += charge;
-                totalBilled += charge;
-                if (file.is_valid) totalPaid += charge;
+              const sd = pr?.raw_json?.structured_data;
+              // 835 structured_data is a dict: { payment_summary, claims: [] }
+              const paymentSummary = sd?.payment_summary;
+              const claims = sd?.claims || pr?.raw_json?.json_export?.claims || [];
+              // Use BPR total_amount from payment_summary if available (most accurate)
+              if (paymentSummary?.total_amount) {
+                const amt = parseFloat(paymentSummary.total_amount || 0);
+                fileBilled += amt;
+                totalBilled += amt;
+                totalPaid += amt;
+              } else {
+                for (const claim of claims) {
+                  const charge = parseFloat(claim.total_charged || claim.total_charge || claim.billed_amount || 0);
+                  const paid = parseFloat(claim.total_paid || claim.paid_amount || 0);
+                  fileBilled += charge;
+                  totalBilled += charge;
+                  totalPaid += paid;
+                }
               }
             } catch (e) { /* skip */ }
             const dateKey = file.uploaded_at ? new Date(file.uploaded_at).toISOString().split('T')[0] : 'unknown';
@@ -374,3 +386,4 @@ export function Remittance835Page() {
     </>
   );
 }
+

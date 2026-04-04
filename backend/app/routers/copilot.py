@@ -247,3 +247,122 @@ async def update_groq_key(req: GroqKeyRequest):
                 f.write(f"\nGROQ_API_KEY={req.api_key}")
     os.environ["GROQ_API_KEY"] = req.api_key
     return {"success": True}
+
+
+class LLMFixRequest(BaseModel):
+    file_id: str
+    errors: list = []  # All validation errors to fix at once
+
+
+@router.post("/copilot/fix-with-llm")
+async def fix_with_llm(
+    req: LLMFixRequest,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(get_current_user),
+):
+    from app.services.chat import ask_llm_fix_edi
+    from app.services.s3_service import S3Service
+    from app.services.db_service import DBService, parse_interchange_date
+    from sqlalchemy import delete as sa_delete
+
+    fid = UUID(req.file_id)
+    file_row = (await db.execute(select(EDIFile).where(EDIFile.id == fid))).scalar_one_or_none()
+    if not file_row:
+        raise HTTPException(status_code=404, detail="File not found")
+    ensure_edit_for_transaction(user, file_row.transaction_type)
+
+    parse_row = (await db.execute(select(ParseResult).where(ParseResult.file_id == fid))).scalar_one_or_none()
+
+    # Get raw EDI — try S3 first, then DB fallback
+    raw_edi = ""
+    if file_row.s3_key:
+        try:
+            raw_edi = S3Service().get_file_bytes(file_row.s3_key).decode("utf-8", errors="ignore")
+        except Exception:
+            pass
+    if not raw_edi and parse_row and isinstance(parse_row.raw_json, dict):
+        raw_edi = parse_row.raw_json.get("raw_edi", "")
+    if not raw_edi:
+        raise HTTPException(status_code=400, detail="Raw EDI content not available for this file")
+
+    # Collect all current validation errors if none passed
+    all_errors = req.errors
+    if not all_errors:
+        db_errors = (await db.execute(select(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))).scalars().all()
+        all_errors = [
+            {"code": e.error_code, "message": e.error_message, "segment": e.segment,
+             "loop": e.loop_id, "severity": e.severity}
+            for e in db_errors
+        ]
+
+    # Ask LLM to fix ALL errors at once
+    corrected_edi = await ask_llm_fix_edi(raw_edi, all_errors)
+    if not corrected_edi or len(corrected_edi.strip()) < 20:
+        raise HTTPException(status_code=422, detail="LLM could not produce a corrected EDI. Check your Groq API key.")
+
+    corrected_bytes = corrected_edi.encode("utf-8")
+
+    # Re-parse and re-validate the corrected EDI
+    from app.services.edi_service import EDIService
+    try:
+        edi_data = EDIService().process_file(corrected_bytes, file_row.original_filename or file_row.filename)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Corrected EDI failed validation: {exc}")
+
+    # Save corrected EDI back to S3
+    if file_row.s3_key:
+        try:
+            S3Service().put_file_bytes(file_row.s3_key, corrected_bytes)
+        except Exception:
+            pass
+
+    # Update EDIFile record
+    file_row.transaction_type = edi_data.get("transaction_type")
+    file_row.is_valid = edi_data.get("is_valid")
+    file_row.error_count = edi_data.get("error_count")
+    file_row.warning_count = edi_data.get("warning_count")
+    file_row.file_size = len(corrected_bytes)
+
+    # Update ParseResult
+    if not parse_row:
+        parse_row = ParseResult(file_id=fid)
+        db.add(parse_row)
+    parse_row.transaction_set = edi_data.get("transaction_type")
+    parse_row.sender_id = edi_data.get("sender_id")
+    parse_row.receiver_id = edi_data.get("receiver_id")
+    parse_row.interchange_date = parse_interchange_date(edi_data.get("interchange_date"))
+    parse_row.segment_count = edi_data.get("segment_count")
+    raw_json = dict(edi_data.get("raw_json") or {})
+    raw_json["raw_edi"] = corrected_edi
+    parse_row.raw_json = raw_json
+
+    # Replace validation errors
+    await db.execute(sa_delete(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))
+    db_service = DBService()
+    await db_service.save_validation_errors(db=db, file_id=fid, issues=edi_data.get("issues") or [])
+
+    await db.commit()
+
+    # Fetch fresh errors
+    remaining_errors = (await db.execute(select(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))).scalars().all()
+
+    return {
+        "success": True,
+        "corrected_edi": corrected_edi,
+        "remaining_errors": [
+            {
+                "id": str(e.id),
+                "segment": e.segment,
+                "error_code": e.error_code,
+                "error_message": e.error_message,
+                "severity": e.severity,
+                "suggestion": e.suggestion,
+            }
+            for e in remaining_errors
+        ],
+        "file_status": {
+            "is_valid": file_row.is_valid,
+            "error_count": file_row.error_count,
+            "warning_count": file_row.warning_count,
+        },
+    }

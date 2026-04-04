@@ -43,3 +43,18 @@ CREATE TABLE IF NOT EXISTS validation_errors (
 );
 
 CREATE INDEX IF NOT EXISTS idx_validation_errors_file_id ON validation_errors(file_id);
+CREATE TABLE IF NOT EXISTS activity_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id VARCHAR(255) NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    resource_type VARCHAR(50),
+    resource_id UUID,
+    resource_name VARCHAR(255),
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    extra_data JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id ON activity_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at DESC);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { authFetch } from '../auth/api';
 import { useAuth } from '../auth/AuthProvider';
@@ -423,6 +423,9 @@ export function MasterParserPage() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [fixLoading, setFixLoading] = useState(false);
+  const [llmFixLoading, setLlmFixLoading] = useState({});
+  const [fixedErrorIds, setFixedErrorIds] = useState(new Set());
+  const [correctedEdi, setCorrectedEdi] = useState(null);
   const [currentFileId, setCurrentFileId] = useState(null);
   const [fileName, setFileName] = useState('Loading...');
   const [rawContent, setRawContent] = useState('');
@@ -511,6 +514,55 @@ export function MasterParserPage() {
       alert('Error applying fix.');
     } finally {
       setFixLoading(false);
+    }
+  }
+
+  async function fixErrorWithLLM(error, errorIndex) {
+    if (!currentFileId) return;
+    // Mark ALL errors as loading
+    const loadingState = {};
+    validationIssues.forEach((_, i) => { loadingState[i] = true; });
+    setLlmFixLoading(loadingState);
+    try {
+      // Send ALL current errors to backend for a single comprehensive fix
+      const allErrors = validationIssues.map((issue) => ({
+        code: issue.code || issue.error_code,
+        message: issue.message || issue.error_message,
+        segment: issue.segmentId || issue.segment,
+        loop: issue.loop_id || issue.loop,
+        severity: issue.severity,
+        current_value: issue.currentValue,
+      }));
+      const res = await authFetch('/api/copilot/fix-with-llm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_id: currentFileId, errors: allErrors }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || 'AI fix failed. Make sure your Groq API key is set in Settings.');
+        return;
+      }
+      // Mark all current errors as fixed in UI
+      const allFixed = new Set(validationIssues.map((_, i) => i));
+      setFixedErrorIds(allFixed);
+      // Update raw EDI panel immediately
+      if (data.corrected_edi) {
+        setCorrectedEdi(data.corrected_edi);
+        setRawContent(data.corrected_edi);
+        setRawDirty(false);
+      }
+      // After showing green state, replace with fresh error list from server
+      setTimeout(() => {
+        const remaining = data.remaining_errors || [];
+        setValidationIssues(normalizeDbIssues(remaining));
+        setFixedErrorIds(new Set());
+        triggerCopilotAnalysis(currentFileId);
+      }, 1500);
+    } catch (e) {
+      alert('Fix request failed: ' + e.message);
+    } finally {
+      setLlmFixLoading({});
     }
   }
 
@@ -697,7 +749,7 @@ export function MasterParserPage() {
         if (globalSearch) {
           localStorage.removeItem('globalSearch');
           try {
-            const allFiles = await fetch('/api/files').then((r) => r.json());
+            const allFiles = await fetch('/api/files?limit=1000').then((r) => r.json());
             const match = Array.isArray(allFiles) && allFiles.find((f) =>
               f.filename.toLowerCase().includes(globalSearch.toLowerCase()) ||
               (f.original_filename || '').toLowerCase().includes(globalSearch.toLowerCase())
@@ -730,6 +782,8 @@ export function MasterParserPage() {
         const reportText = parseResult?.raw_json?.report || '';
         setOverviewText(buildOverviewFromParse(null, reportText));
         setCurrentFileId(id);
+        setFixedErrorIds(new Set());
+        setCorrectedEdi(null);
         triggerCopilotAnalysis(id);
 
         // Wire JSON download button
@@ -1129,33 +1183,59 @@ export function MasterParserPage() {
                     <p className="text-sm font-semibold text-green-700">No validation errors found. This file is clean.</p>
                   </div>
                 ) : (
-                  validationIssues.map((issue, idx) => (
-                    <div key={`${issue.code}-${idx}`} className={`error-card p-4 bg-white rounded-xl shadow-sm border-l-4 ${issue.severity === 'warning' ? 'border-amber-400' : 'border-error'}`}>
-                      <div className="flex gap-3">
-                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${issue.severity === 'warning' ? 'bg-amber-100 text-amber-600' : 'bg-error-container text-error'}`}>
-                          <span className="material-symbols-outlined">report</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <h4 className="text-sm font-bold text-on-surface">{issue.code}</h4>
-                            <span className="text-[10px] font-mono px-2 py-0.5 bg-surface-container rounded uppercase">{issue.severity}</span>
+                  validationIssues.map((issue, idx) => {
+                    const isFixed = fixedErrorIds.has(idx);
+                    const isLoading = !!llmFixLoading[idx];
+                    const errObj = {
+                      code: issue.code || issue.error_code,
+                      message: issue.message || issue.error_message,
+                      segment: issue.segmentId || issue.segment,
+                      loop: issue.loop_id || issue.loop,
+                      severity: issue.severity,
+                      current_value: issue.currentValue,
+                    };
+                    return (
+                      <div key={issue.code + idx} className={['error-card p-4 rounded-xl shadow-sm border-l-4 transition-all duration-300', isFixed ? 'bg-green-50 border-green-500' : issue.severity === 'warning' ? 'bg-white border-amber-400' : 'bg-white border-error'].join(' ')}>
+                        <div className="flex gap-3">
+                          <div className={['w-9 h-9 rounded-lg flex items-center justify-center shrink-0', isFixed ? 'bg-green-100 text-green-600' : issue.severity === 'warning' ? 'bg-amber-100 text-amber-600' : 'bg-error-container text-error'].join(' ')}>
+                            <span className="material-symbols-outlined">{isFixed ? 'check_circle' : 'report'}</span>
                           </div>
-                          <p className="text-xs text-on-surface-variant mt-1 break-words">{issue.message}</p>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            {issue.loop ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">LOOP: {issue.loop}</span> : null}
-                            {issue.segmentId ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">SEG: {issue.segmentId}</span> : null}
-                            {issue.elementPosition ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">ELM: {issue.elementPosition}</span> : null}
-                            {issue.currentValue ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">VALUE: {issue.currentValue}</span> : null}
-                          </div>
-                          {issue.suggestedValue ? (
-                            <div className="mt-2 text-[10px] text-outline">
-                              Suggested: <span className="font-mono text-on-surface">{issue.suggestedValue}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <h4 className={isFixed ? 'text-sm font-bold text-green-700' : 'text-sm font-bold text-on-surface'}>{issue.code}</h4>
+                              {isFixed
+                                ? <span className="text-[10px] font-bold px-2 py-0.5 bg-green-100 text-green-700 rounded-full">FIXED</span>
+                                : <span className="text-[10px] font-mono px-2 py-0.5 bg-surface-container rounded uppercase">{issue.severity}</span>
+                              }
                             </div>
-                          ) : null}
+                            <p className={isFixed ? 'text-xs mt-1 break-words text-green-600 line-through opacity-60' : 'text-xs text-on-surface-variant mt-1 break-words'}>{issue.message}</p>
+                            {!isFixed && (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                {issue.loop ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">LOOP: {issue.loop}</span> : null}
+                                {issue.segmentId ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">SEG: {issue.segmentId}</span> : null}
+                                {issue.elementPosition ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">ELM: {issue.elementPosition}</span> : null}
+                                {issue.currentValue ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">VALUE: {issue.currentValue}</span> : null}
+                              </div>
+                            )}
+                            {!isFixed && (
+                              <button
+                                onClick={() => fixErrorWithLLM(errObj, idx)}
+                                disabled={isLoading || !currentFileId}
+                                className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-lg text-[11px] font-bold hover:bg-primary/90 active:scale-95 disabled:opacity-40 transition-all"
+                                type="button"
+                              >
+                                {isLoading
+                                  ? <><span className="animate-spin material-symbols-outlined text-[14px]">progress_activity</span><span>Fixing with AI...</span></>
+                                  : <><span className="material-symbols-outlined text-[14px]">auto_fix_high</span><span>Fix with AI</span></>
+                                }
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
+                )}
                 )}
 
                 {suggestionItems.length > 0 ? (
@@ -1351,12 +1431,28 @@ export function MasterParserPage() {
               ) : null}
               <div className="relative z-20 border-t border-slate-200/40 bg-white/90 backdrop-blur-sm px-4 py-3 flex items-center justify-between">
                 <button
-                  onClick={handleAutoFix}
-                  disabled={rawSaving || !currentFileId || validationIssues.length === 0}
-                  className="px-4 py-2 bg-tertiary text-white rounded-xl text-xs font-bold shadow-lg shadow-tertiary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-40"
+                  onClick={async () => {
+                    if (!currentFileId || !validationIssues.length) return;
+                    for (let i = 0; i < validationIssues.length; i++) {
+                      if (fixedErrorIds.has(i)) continue;
+                      const issue = validationIssues[i];
+                      const errObj = {
+                        code: issue.code || issue.error_code,
+                        message: issue.message || issue.error_message,
+                        segment: issue.segmentId || issue.segment,
+                        loop: issue.loop_id || issue.loop,
+                        severity: issue.severity,
+                        current_value: issue.currentValue,
+                      };
+                      await fixErrorWithLLM(errObj, i);
+                    }
+                  }}
+                  disabled={!currentFileId || validationIssues.length === 0 || Object.values(llmFixLoading).some(Boolean)}
+                  className="px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-40 flex items-center gap-1.5"
                   type="button"
                 >
-                  {rawSaving ? 'Fixing...' : 'Fix errors'}
+                  <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
+                  {Object.values(llmFixLoading).some(Boolean) ? 'Fixing...' : 'Fix errors'}
                 </button>
                 <div className="flex gap-2">
                   <button className={paneButtonClass('copilot')} onClick={() => togglePane('copilot')} aria-label="Open Copilot panel" type="button">
@@ -1402,9 +1498,8 @@ export function MasterParserPage() {
             onClick={async () => {
               if (!currentFileId) return;
               try {
-                const res = await authFetch('/api/files/' + currentFileId + '/raw');
-                if (!res.ok) throw new Error('File not available');
-                const text = await res.text();
+                const text = correctedEdi || rawContent;
+                if (!text) throw new Error('No EDI content available');
                 const blob = new Blob([text], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -1414,11 +1509,11 @@ export function MasterParserPage() {
                 URL.revokeObjectURL(url);
               } catch (e) { alert('Download failed: ' + e.message); }
             }}
-            className="flex items-center gap-2 px-5 py-2.5 bg-surface-container-highest text-on-surface rounded-xl text-sm font-bold border border-outline-variant/20 hover:bg-white hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-40"
+            className={['flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold border hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-40', correctedEdi ? 'bg-green-600 text-white border-green-700 shadow-md' : 'bg-surface-container-highest text-on-surface border-outline-variant/20 hover:bg-white'].join(' ')}
             type="button"
           >
-            <span className="material-symbols-outlined text-[18px]">download</span>
-            Download Corrected EDI
+            <span className="material-symbols-outlined text-[18px]">{correctedEdi ? 'verified' : 'download'}</span>
+            {correctedEdi ? 'Download Fixed EDI' : 'Download Corrected EDI'}
           </button>
           {rawSaveStatus ? <span className="text-xs text-outline italic ml-2">{rawSaveStatus}</span> : null}
         </div>
@@ -1439,3 +1534,5 @@ export function MasterParserPage() {
     </>
   );
 }
+
+

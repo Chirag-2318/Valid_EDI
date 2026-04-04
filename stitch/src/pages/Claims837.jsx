@@ -24,6 +24,9 @@ export function Claims837Page() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [billedByDate, setBilledByDate] = useState([]);
+  const [remittanceMap, setRemittanceMap] = useState({});
+  const [expandedRows, setExpandedRows] = useState({});
+  const [npiCache, setNpiCache] = useState({});
   const PAGE_SIZE = 7;
 
   useEffect(() => {
@@ -33,9 +36,21 @@ export function Claims837Page() {
   }, []);
 
   useEffect(() => {
+    async function loadRemittanceStatus() {
+      try {
+        const data = await authFetch('/api/claims/remittance-status').then((r) => r.json());
+        if (Array.isArray(data)) {
+          const map = {};
+          data.forEach((item) => { map[item.file_id] = item; });
+          setRemittanceMap(map);
+        }
+      } catch (err) {
+        console.error('Failed to load remittance status:', err);
+      }
+    }
     async function loadClaimsData() {
       try {
-        const files = await authFetch('/api/files').then((r) => r.json());
+        const files = await authFetch('/api/files?limit=1000').then((r) => r.json());
         const claimFiles = Array.isArray(files)
           ? files.filter((f) => f.transaction_type === '837p' || f.transaction_type === '837i')
           : [];
@@ -68,6 +83,7 @@ export function Claims837Page() {
       }
     }
     loadClaimsData();
+    loadRemittanceStatus();
   }, []);
 
   useEffect(() => {
@@ -83,6 +99,18 @@ export function Claims837Page() {
   }, [allFiles, claimType, searchQuery]);
 
   const totalPages = Math.ceil(filteredFiles.length / PAGE_SIZE);
+
+  function toggleRow(id) {
+    setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
+    // Lazy-load NPI status on first expand
+    if (!npiCache[id]) {
+      setNpiCache((prev) => ({ ...prev, [id]: { loading: true } }));
+      authFetch('/api/files/' + id + '/npi-status')
+        .then((r) => r.json())
+        .then((data) => setNpiCache((prev) => ({ ...prev, [id]: { loading: false, data } })))
+        .catch(() => setNpiCache((prev) => ({ ...prev, [id]: { loading: false, error: true } })));
+    }
+  }
   const pageFiles = filteredFiles.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
@@ -345,7 +373,7 @@ export function Claims837Page() {
                         <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10 text-center">Errors</th>
                         <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10">Validation Status</th>
                         <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10">Remittance Status</th>
-                        <th className="px-4 py-3 border-b border-outline-variant/10"></th>
+                        <th className="px-4 py-3 border-b border-outline-variant/10 w-8"></th>
                       </tr>
                     </thead>
                     <tbody id="claims-tbody" className="divide-y divide-outline-variant/5">
@@ -360,29 +388,118 @@ export function Claims837Page() {
                         const statusClass = isValid ? 'bg-green-100 text-green-700 border-green-200/50' : 'bg-error-container/30 text-error border-error/10';
                         const statusText = isValid ? 'Clean' : 'Error';
                         const statusDot = isValid ? 'bg-green-500' : 'bg-error';
-                        const isRemitted = fileIdx % 4 !== 2 && fileIdx % 5 !== 0;
-                        return (
-                          <tr key={file.id} className="hover:bg-primary/5 transition-colors group cursor-pointer" onClick={() => { localStorage.setItem('selectedFileId', file.id); window.location.href = '/master_parser_sleek'; }}>
-                            <td className="px-4 py-3 text-xs font-bold text-slate-900">{file.filename}</td>
-                            <td className="px-4 py-3"><span className="text-xs font-semibold text-slate-700">{(file.transaction_type || '').toUpperCase()}</span></td>
-                            <td className="px-4 py-3 text-xs text-slate-600">{file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '-'}</td>
-                            <td className="px-4 py-3 text-xs font-bold text-slate-900 text-right">${(file.totalBilled || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                            <td className="px-4 py-3 text-center"><span className="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">{file.error_count || 0} err</span></td>
-                            <td className="px-4 py-3"><span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border ${statusClass}`}><span className={`w-1.5 h-1.5 rounded-full ${statusDot}`}></span> {statusText}</span></td>
-                            <td className="px-4 py-3">
-                              {isRemitted ? (
-                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#2563eb', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
-                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#3b82f6' }}></span> Remitted
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#dc2626', borderColor: 'rgba(239, 68, 68, 0.2)' }}>
-                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#ef4444' }}></span> Not Remitted
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-right"><span className="material-symbols-outlined text-lg text-slate-300 group-hover:text-primary">open_in_new</span></td>
-                          </tr>
-                        );
+                        const remitInfo = remittanceMap[file.id];
+                        const isRemitted = remitInfo ? remitInfo.is_remitted : false;
+                        const linked835 = remitInfo ? (remitInfo.linked_835 || []) : [];
+                        const isExpanded = !!expandedRows[file.id];
+                        return [
+                            <tr key={file.id} className="hover:bg-primary/5 transition-colors group cursor-pointer" onClick={() => toggleRow(file.id)}>
+                              <td className="px-4 py-3 text-xs font-bold text-slate-900">{file.filename}</td>
+                              <td className="px-4 py-3"><span className="text-xs font-semibold text-slate-700">{(file.transaction_type || '').toUpperCase()}</span></td>
+                              <td className="px-4 py-3 text-xs text-slate-600">{file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '-'}</td>
+                              <td className="px-4 py-3 text-xs font-bold text-slate-900 text-right">${(file.totalBilled || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                              <td className="px-4 py-3 text-center"><span className="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">{file.error_count || 0} err</span></td>
+                              <td className="px-4 py-3"><span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border ${statusClass}`}><span className={`w-1.5 h-1.5 rounded-full ${statusDot}`}></span> {statusText}</span></td>
+                              <td className="px-4 py-3">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); if (linked835.length > 0) toggleRow(file.id); }}
+                                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border transition-all ${isRemitted ? 'bg-blue-50 text-blue-700 border-blue-200/50 hover:bg-blue-100' : 'bg-red-50 text-red-600 border-red-200/50'} ${linked835.length > 0 ? 'cursor-pointer' : 'cursor-default'}`}
+                                  title={linked835.length > 0 ? (isExpanded ? 'Collapse' : 'Show linked 835 files') : undefined}
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${isRemitted ? 'bg-blue-500' : 'bg-red-500'}`}></span>
+                                  {isRemitted ? 'Remitted' : 'Not Remitted'}
+                                  {linked835.length > 0 && (
+                                    <span className="material-symbols-outlined text-[12px]" style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s ease' }}>chevron_right</span>
+                                  )}
+                                </button>
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); localStorage.setItem('selectedFileId', file.id); window.location.href = '/master_parser_sleek'; }}
+                                  className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-all"
+                                  title="Open in Master Parser"
+                                >
+                                  <span className="material-symbols-outlined text-lg">open_in_new</span>
+                                </button>
+                              </td>
+                            </tr>,
+                                                        isExpanded && <tr key={file.id + '-expanded'} className="bg-slate-50/60">
+                                <td colSpan={8} className="px-6 py-4">
+                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <div className="bg-white rounded-xl border border-blue-100 p-4 shadow-sm">
+                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                        <span className="material-symbols-outlined text-[14px] text-blue-500">receipt_long</span>
+                                        835 Remittance Link
+                                      </p>
+                                      {linked835.length === 0 ? (
+                                        <div className="flex items-center gap-2 text-xs text-slate-400 italic">
+                                          <span className="w-2 h-2 rounded-full bg-red-400 inline-block"></span>
+                                          No matching 835 found for this claim
+                                        </div>
+                                      ) : linked835.map((r, i) => (
+                                        <div key={i} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
+                                          <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-bold text-slate-800 truncate">{r.filename || r.file_id}</p>
+                                            <p className="text-[10px] text-slate-400 mt-0.5">Claim ID: <span className="font-semibold text-slate-600">{r.claim_id || '--'}</span></p>
+                                          </div>
+                                          <div className="text-right shrink-0">
+                                            <p className="text-xs font-bold text-green-700">${(r.paid || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                                            <p className="text-[10px] text-slate-400">Paid</p>
+                                          </div>
+                                          <button type="button" onClick={(e) => { e.stopPropagation(); localStorage.setItem('selectedFileId', r.file_id); window.location.href = '/master_parser_sleek'; }} className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-all shrink-0" title="Open 835 file">
+                                            <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div className="bg-white rounded-xl border border-purple-100 p-4 shadow-sm">
+                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                        <span className="material-symbols-outlined text-[14px] text-purple-500">verified_user</span>
+                                        NPI Validation (NPPES)
+                                      </p>
+                                      {(() => {
+                                        const npiState = npiCache[file.id];
+                                        if (!npiState || npiState.loading) {
+                                          return (
+                                            <div className="flex items-center gap-2 text-xs text-slate-400">
+                                              <span className="w-3 h-3 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin inline-block"></span>
+                                              Checking NPPES registry...
+                                            </div>
+                                          );
+                                        }
+                                        if (npiState.error) return <p className="text-xs text-slate-400 italic">Could not reach NPPES API</p>;
+                                        const npis = npiState.data?.npis || [];
+                                        if (npis.length === 0) return <p className="text-xs text-slate-400 italic">No NPI found in this file</p>;
+                                        return npis.map((n, i) => (
+                                          <div key={i} className="flex items-start gap-3 py-2 border-b border-slate-100 last:border-0">
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="text-xs font-bold text-slate-800 font-mono">{n.npi}</span>
+                                                {n.found ? (
+                                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${n.active ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${n.active ? 'bg-green-500' : 'bg-amber-500'}`}></span>
+                                                    {n.active ? 'NPI Active' : 'NPI Inactive'}
+                                                  </span>
+                                                ) : (
+                                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-red-50 text-red-600 border-red-200">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                                                    Not Found
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <p className="text-[10px] text-slate-500 mt-0.5">EDI: <span className="font-medium text-slate-700">{n.edi_name || '--'}</span>{n.nppes_name && n.nppes_name !== n.edi_name ? <span className="ml-2 text-slate-400">NPPES: <span className="font-medium text-slate-600">{n.nppes_name}</span></span> : null}</p>
+                                              {n.primary_taxonomy && <p className="text-[10px] text-purple-500 mt-0.5">{n.primary_taxonomy}</p>}
+                                            </div>
+                                          </div>
+                                        ));
+                                      })()}
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                        ];
                       })}
                     </tbody>
                   </table>
@@ -448,6 +565,10 @@ export function Claims837Page() {
                   <p className="text-lg font-black text-primary">${filteredFiles.reduce((s,f)=>s+(f.totalBilled||0),0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
                 </div>
                 <div className="text-center">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Paid</p>
+                  <p className="text-lg font-black text-green-600">${Object.values(remittanceMap).reduce((s,r)=>s+(r.total_paid||0),0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                </div>
+                <div className="text-center">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Clean Rate</p>
                   <p className="text-lg font-black text-green-600">{filteredFiles.length > 0 ? Math.round((filteredFiles.filter(f=>f.is_valid).length/filteredFiles.length)*100) : 0}%</p>
                 </div>
@@ -459,3 +580,5 @@ export function Claims837Page() {
     </>
   );
 }
+
+

@@ -1,17 +1,31 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import { canAny, CLAIMS_ACCESS_PERMISSIONS } from '../auth/permissions';
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary page-user-profile';
 
 export function UserProfilePage() {
-  const { permissions } = useAuth();
+  const { permissions, user } = useAuth();
   const canClaims = canAny(permissions, CLAIMS_ACCESS_PERMISSIONS);
 
   const [profileData, setProfileData] = useState({ name: '', email: '', jobTitle: '', department: '', phone: '' });
   const [editMode, setEditMode] = useState(false);
   const [recentFiles, setRecentFiles] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [validationRules, setValidationRules] = useState([]);
+  const [showRuleModal, setShowRuleModal] = useState(false);
+  const [newRule, setNewRule] = useState({ name: '', description: '', segment: '', condition: '', severity: 'error' });
+
+  // Seed name/email from Firebase user if not already saved locally
+  useEffect(() => {
+    if (!user) return;
+    setProfileData((p) => ({
+      ...p,
+      name: p.name || user.displayName || '',
+      email: p.email || user.email || '',
+    }));
+  }, [user]);
 
   useEffect(() => {
     const previous = document.body.className;
@@ -22,11 +36,16 @@ export function UserProfilePage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const files = await fetch('/api/files').then((r) => r.json());
+        const { authFetch } = await import('../auth/api');
+        const [files, logs] = await Promise.all([
+          authFetch('/api/files?limit=1000').then((r) => r.json()).catch(() => []),
+          authFetch('/api/activity-logs?limit=20').then((r) => r.json()).catch(() => []),
+        ]);
         if (Array.isArray(files)) {
           const sorted = [...files].sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
           setRecentFiles(sorted.slice(0, 5));
         }
+        if (Array.isArray(logs)) setActivityLogs(logs);
       } catch (e) { /* skip */ }
       const ip = '192.168.1.' + Math.floor(Math.random() * 255);
       setSessions([
@@ -37,6 +56,8 @@ export function UserProfilePage() {
       if (saved) {
         setProfileData(JSON.parse(saved));
       }
+      const savedRules = localStorage.getItem('customValidationRules');
+      if (savedRules) setValidationRules(JSON.parse(savedRules));
     }
     loadData();
   }, []);
@@ -220,33 +241,63 @@ export function UserProfilePage() {
               </div>
             </div>
 
+            {/* ?? Recent Activity Log ?? */}
             <div className="col-span-12 md:col-span-7 glass-card p-6 rounded-3xl shadow-sm ring-1 ring-white/20">
-              <div className="flex items-center gap-2 mb-6">
-                <span className="material-symbols-outlined text-primary">history</span>
-                <h3 className="font-bold text-on-surface tracking-tight">Recent Activity Log</h3>
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary">history</span>
+                  <h3 className="font-bold text-on-surface tracking-tight">Recent Activity Log</h3>
+                </div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{activityLogs.length} Events</span>
               </div>
-              <div className="relative space-y-6 before:absolute before:left-3 before:top-2 before:bottom-2 before:w-px before:bg-slate-200">
-                {recentFiles.length === 0 ? (
-                  <p className="text-sm text-slate-400 italic pl-8">No recent activity.</p>
-                ) : recentFiles.map((file) => (
-                  <div
-                    key={file.id}
-                    className="relative pl-8 flex items-start gap-4 cursor-pointer group"
-                    onClick={() => { localStorage.setItem('selectedFileId', file.id); window.location.href = '/master_parser_sleek'; }}
-                  >
-                    <div className={`absolute left-0 w-6 h-6 rounded-full bg-white border-2 ${file.is_valid ? 'border-primary' : 'border-error'} flex items-center justify-center z-10`}>
-                      <div className={`w-2 h-2 rounded-full ${file.is_valid ? 'bg-primary' : 'bg-error'}`}></div>
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold group-hover:text-primary transition-colors">{file.filename}</p>
-                      <p className="text-xs text-on-surface-variant">{(file.transaction_type || '').toUpperCase()} &bull; {file.error_count} error(s) &bull; <span className="text-primary font-medium ml-1">{file.is_valid ? 'Valid' : 'Needs review'}</span></p>
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-400">{file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : ''}</span>
+              <div className="relative space-y-0 before:absolute before:left-3 before:top-2 before:bottom-2 before:w-px before:bg-gradient-to-b before:from-primary/30 before:via-slate-200 before:to-transparent">
+                {activityLogs.length === 0 ? (
+                  <div className="pl-8 py-6 text-center">
+                    <span className="material-symbols-outlined text-slate-300 text-4xl block mb-2">history</span>
+                    <p className="text-sm text-slate-400 italic">No activity recorded yet.</p>
+                    <p className="text-xs text-slate-300 mt-1">Upload an EDI file to start tracking.</p>
                   </div>
-                ))}
+                ) : activityLogs.map((log, idx) => {
+                  const actionIcons = { file_upload: 'upload_file', file_view: 'visibility', file_edit: 'edit', login: 'login' };
+                  const actionColors = { file_upload: 'border-primary bg-primary/10 text-primary', file_view: 'border-blue-400 bg-blue-50 text-blue-600', file_edit: 'border-amber-400 bg-amber-50 text-amber-600', login: 'border-green-400 bg-green-50 text-green-600' };
+                  const icon = actionIcons[log.action] || 'circle';
+                  const color = actionColors[log.action] || 'border-slate-300 bg-slate-50 text-slate-500';
+                  const meta = log.metadata || {};
+                  return (
+                    <div key={log.id} className="relative pl-10 pb-5 group">
+                      <div className={`absolute left-0 w-6 h-6 rounded-full border-2 flex items-center justify-center z-10 ${color}`}>
+                        <span className="material-symbols-outlined text-[12px]">{icon}</span>
+                      </div>
+                      <div className="bg-surface-container-low/60 hover:bg-surface-container rounded-2xl p-3 transition-colors cursor-default">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-on-surface truncate">{log.resource_name || log.action}</p>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              {meta.transaction_type && (
+                                <span className="text-[10px] font-bold uppercase bg-primary/10 text-primary px-2 py-0.5 rounded-full">{meta.transaction_type}</span>
+                              )}
+                              {meta.is_valid !== undefined && (
+                                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${meta.is_valid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                                  {meta.is_valid ? 'Valid' : `${meta.error_count || 0} errors`}
+                                </span>
+                              )}
+                              {log.ip_address && (
+                                <span className="text-[10px] text-slate-400 font-mono">{log.ip_address}</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap shrink-0">
+                            {log.created_at ? new Date(log.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
+            {/* ?? Security & Access Log ?? */}
             <div className="col-span-12 md:col-span-5 bg-on-surface text-white p-6 rounded-3xl shadow-xl">
               <div className="flex items-center gap-2 mb-6">
                 <span className="material-symbols-outlined text-primary-container">shield</span>
@@ -257,7 +308,7 @@ export function UserProfilePage() {
                   <div key={i} className="p-3 bg-white/5 rounded-2xl border border-white/10">
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{s.label}</span>
-                      {s.active && <span className="w-2 h-2 bg-green-500 rounded-full"></span>}
+                      {s.active && <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>}
                     </div>
                     <p className="text-sm font-mono opacity-90">{s.ip}</p>
                     <p className="text-[10px] opacity-60">{s.details}</p>
@@ -273,9 +324,164 @@ export function UserProfilePage() {
                 </button>
               </div>
             </div>
+
+            {/* ?? Custom Validation Rules ?? */}
+            <div className="col-span-12 glass-card p-6 rounded-3xl shadow-sm ring-1 ring-white/20">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+                    <span className="material-symbols-outlined text-amber-600">rule</span>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-on-surface tracking-tight">Custom Validation Rules</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Define your own EDI validation logic per segment</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowRuleModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-bold rounded-xl shadow-md hover:shadow-lg active:scale-95 transition-all"
+                  type="button"
+                >
+                  <span className="material-symbols-outlined text-[18px]">add</span>
+                  Add Rule
+                </button>
+              </div>
+
+              {validationRules.length === 0 ? (
+                <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center">
+                  <span className="material-symbols-outlined text-slate-300 text-5xl block mb-3">rule_settings</span>
+                  <p className="text-sm font-semibold text-slate-500">No custom rules yet</p>
+                  <p className="text-xs text-slate-400 mt-1">Add rules to enforce your organization's EDI standards</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {validationRules.map((rule, i) => (
+                    <div key={i} className="relative p-4 bg-surface-container-low rounded-2xl border border-outline-variant/20 group hover:border-primary/30 transition-colors">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${rule.severity === 'error' ? 'bg-red-500' : 'bg-amber-400'}`}></span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{rule.severity}</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const updated = validationRules.filter((_, idx) => idx !== i);
+                            setValidationRules(updated);
+                            localStorage.setItem('customValidationRules', JSON.stringify(updated));
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all"
+                          type="button"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">delete</span>
+                        </button>
+                      </div>
+                      <h4 className="font-bold text-sm text-on-surface mb-1">{rule.name}</h4>
+                      <p className="text-xs text-slate-500 mb-3 line-clamp-2">{rule.description || 'No description'}</p>
+                      <div className="flex gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">{rule.segment || 'Any'}</span>
+                        <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full truncate max-w-[120px]">{rule.condition}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* ?? Add Rule Modal ?? */}
+          {showRuleModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowRuleModal(false)}>
+              <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-black text-on-surface">New Validation Rule</h3>
+                  <button onClick={() => setShowRuleModal(false)} className="text-slate-400 hover:text-slate-700" type="button">
+                    <span className="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest font-black text-slate-400 mb-1">Rule Name</label>
+                    <input
+                      value={newRule.name}
+                      onChange={(e) => setNewRule((r) => ({ ...r, name: e.target.value }))}
+                      className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 focus:outline-none"
+                      placeholder="e.g. NPI Required on CLM"
+                      type="text"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest font-black text-slate-400 mb-1">Description</label>
+                    <textarea
+                      value={newRule.description}
+                      onChange={(e) => setNewRule((r) => ({ ...r, description: e.target.value }))}
+                      className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 focus:outline-none resize-none"
+                      placeholder="Describe what this rule checks..."
+                      rows={2}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-widest font-black text-slate-400 mb-1">Segment</label>
+                      <input
+                        value={newRule.segment}
+                        onChange={(e) => setNewRule((r) => ({ ...r, segment: e.target.value.toUpperCase() }))}
+                        className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 focus:outline-none font-mono"
+                        placeholder="CLM, NM1, REF..."
+                        type="text"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-widest font-black text-slate-400 mb-1">Severity</label>
+                      <select
+                        value={newRule.severity}
+                        onChange={(e) => setNewRule((r) => ({ ...r, severity: e.target.value }))}
+                        className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 focus:outline-none"
+                      >
+                        <option value="error">Error</option>
+                        <option value="warning">Warning</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest font-black text-slate-400 mb-1">Condition / Expression</label>
+                    <input
+                      value={newRule.condition}
+                      onChange={(e) => setNewRule((r) => ({ ...r, condition: e.target.value }))}
+                      className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-primary/20 focus:outline-none"
+                      placeholder="element[1] != '' && element[1].length == 10"
+                      type="text"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={() => setShowRuleModal(false)}
+                    className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!newRule.name.trim()) return;
+                      const updated = [...validationRules, { ...newRule }];
+                      setValidationRules(updated);
+                      localStorage.setItem('customValidationRules', JSON.stringify(updated));
+                      setNewRule({ name: '', description: '', segment: '', condition: '', severity: 'error' });
+                      setShowRuleModal(false);
+                    }}
+                    className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-bold shadow-md hover:shadow-lg active:scale-95 transition-all"
+                    type="button"
+                  >
+                    Save Rule
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </>
   );
 }
+
+

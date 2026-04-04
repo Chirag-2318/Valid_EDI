@@ -798,7 +798,7 @@ export function Enrollment834Page() {
   useEffect(() => {
     async function load() {
       try {
-        const files = await authFetch('/api/files').then((r) => r.json());
+        const files = await authFetch('/api/files?limit=1000').then((r) => r.json());
         const ef = Array.isArray(files) ? files.filter((f) => f.transaction_type === '834') : [];
         setEnrollFiles(ef);
         if (ef.length > 0) {
@@ -1083,3 +1083,4 @@ export function Enrollment834Page() {
     </div>
   );
 }
+
