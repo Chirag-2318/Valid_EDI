@@ -1,4 +1,5 @@
-﻿﻿import { useEffect } from 'react';
+﻿﻿import { useEffect, useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { authFetch } from '../auth/api';
 import { useAuth } from '../auth/AuthProvider';
 import {
@@ -17,6 +18,7 @@ export function DashboardPage() {
   const canEnrollment = canAny(permissions, ENROLLMENT_ACCESS_PERMISSIONS);
   const canRemittance = canAny(permissions, REMITTANCE_ACCESS_PERMISSIONS);
   const isAdmin = canAny(permissions, ADMIN_PERMISSIONS);
+  const [uploadTrend, setUploadTrend] = useState([]);
 
   useEffect(() => {
     const previous = document.body.className;
@@ -207,6 +209,15 @@ export function DashboardPage() {
         writeSubmissions(items);
         updateSummary();
         renderAudits(items);
+        // Build upload trend
+        const byDate = {};
+        items.forEach(f => {
+          const d = f.timeLabel || 'Unknown';
+          if (!byDate[d]) byDate[d] = {date:d, count:0, errors:0};
+          byDate[d].count++;
+          if (f.errorCount > 0) byDate[d].errors++;
+        });
+        setUploadTrend(Object.values(byDate).slice(-7));
       } catch(e) {
         hydrateFromAPI();
       }
@@ -371,6 +382,12 @@ export function DashboardPage() {
               className="bg-transparent border-none focus:ring-0 text-sm w-48 placeholder:text-slate-400"
               placeholder="Search files..."
               type="text"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.target.value.trim()) {
+                  localStorage.setItem('globalSearch', e.target.value.trim());
+                  window.location.href = '/master_parser_sleek';
+                }
+              }}
             />
           </div>
           <a className="p-2 hover:bg-slate-100/50 rounded-full transition-all active:scale-95" href="/notifications" aria-label="Open notifications">
@@ -476,7 +493,7 @@ export function DashboardPage() {
         <div className="mt-auto px-4 pb-4">
           <button
             className="w-full bg-primary text-white rounded-xl py-3 text-sm font-bold shadow-lg shadow-primary/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-all hover:brightness-95"
-            onClick={() => console.log('Open New Submission Dialog')}
+            onClick={() => window.location.href = '/dashboard_sleek'}
             type="button"
           >
             <span className="material-symbols-outlined text-[20px]">add_circle</span>
@@ -542,9 +559,9 @@ export function DashboardPage() {
                 <p className="text-on-surface-variant font-medium mb-10 max-w-[280px] mx-auto">
                   Upload HIPAA-compliant transactions for real-time validation and parsing.
                 </p>
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-4 items-center w-full">
                   <button
-                    className="bg-primary text-white rounded-xl px-8 py-4 font-bold shadow-xl shadow-primary/30 hover:shadow-primary/40 active:scale-95 transition-all hover:brightness-95 active:scale-95"
+                    className="bg-primary text-white rounded-xl px-8 py-4 font-bold w-full max-w-xs shadow-xl shadow-primary/30 hover:shadow-primary/40 active:scale-95 transition-all hover:brightness-95"
                     id="upload-trigger"
                     type="button"
                   >
@@ -583,52 +600,31 @@ export function DashboardPage() {
           </section>
         </div>
 
-        <footer className="mt-12 grid grid-cols-4 gap-6">
-          <div className="bg-surface-container-low rounded-2xl p-6 flex items-center gap-5">
-            <div className="p-3 bg-white rounded-xl shadow-sm">
-              <span className="material-symbols-outlined text-primary">cloud_done</span>
+        {uploadTrend.length > 0 && (
+          <div className="mt-10 bg-white rounded-2xl border border-outline-variant/10 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-base font-bold text-on-surface">Upload Activity</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Files processed per day - last 7 days</p>
+              </div>
+              <div className="flex items-center gap-4 text-xs">
+                <span className="flex items-center gap-1.5 text-slate-400"><span className="w-3 h-3 rounded-full bg-primary inline-block"></span>Total</span>
+                <span className="flex items-center gap-1.5 text-slate-400"><span className="w-3 h-3 rounded-full bg-error inline-block"></span>Errors</span>
+              </div>
             </div>
-            <div>
-              <span className="text-[10px] font-bold text-outline uppercase">Storage Used</span>
-              <p className="text-lg font-black text-on-surface" id="storage-used">
-                0 files
-              </p>
-            </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={uploadTrend} margin={{top:5,right:20,left:0,bottom:0}} barGap={4} barSize={20}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
+                <XAxis dataKey="date" tick={{fontSize:11,fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
+                <YAxis allowDecimals={false} tick={{fontSize:11,fill:'#94a3b8'}} axisLine={false} tickLine={false} width={30}/>
+                <Tooltip contentStyle={{borderRadius:'12px',border:'1px solid #e2e8f0',boxShadow:'0 4px 24px rgba(0,0,0,0.08)',fontSize:'12px'}} cursor={{fill:'rgba(79,70,229,0.04)'}}/>
+                <Bar dataKey="count" name="Total Files" fill="#4f46e5" radius={[4,4,0,0]} opacity={0.85}/>
+                <Bar dataKey="errors" name="Errors" fill="#ef4444" radius={[4,4,0,0]} opacity={0.7}/>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-          <div className="bg-surface-container-low rounded-2xl p-6 flex items-center gap-5">
-            <div className="p-3 bg-white rounded-xl shadow-sm">
-              <span className="material-symbols-outlined text-primary">speed</span>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-outline uppercase">Parse Latency</span>
-              <p className="text-lg font-black text-on-surface" id="parse-latency">
-                --
-              </p>
-            </div>
-          </div>
-          <div className="bg-surface-container-low rounded-2xl p-6 flex items-center gap-5">
-            <div className="p-3 bg-white rounded-xl shadow-sm">
-              <span className="material-symbols-outlined text-primary">verified_user</span>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-outline uppercase">Security Status</span>
-              <p className="text-lg font-black text-on-surface" id="security-status">
-                No submissions
-              </p>
-            </div>
-          </div>
-          <div className="bg-surface-container-low rounded-2xl p-6 flex items-center gap-5">
-            <div className="p-3 bg-white rounded-xl shadow-sm">
-              <span className="material-symbols-outlined text-tertiary">psychology</span>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-outline uppercase">AI Savings</span>
-              <p className="text-lg font-black text-on-surface" id="ai-savings">
-                --
-              </p>
-            </div>
-          </div>
-        </footer>
+        )}
+
       </main>
     </div>
   );

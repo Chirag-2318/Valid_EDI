@@ -309,3 +309,35 @@ def _to_float(value: str) -> float:
     except ValueError:
         return 0.0
 
+
+
+
+@app.get("/api/export/summary-pdf/{file_id}")
+async def export_summary_pdf(
+    file_id: str,
+    user: UserContext = Depends(get_current_user),
+) -> StreamingResponse:
+    from uuid import UUID
+    from sqlalchemy import select as sa_select
+    from app.database import get_db as _get_db
+    from app.db_models import EDIFile, ParseResult, ValidationErrorDB
+    from app.auth.firebase_auth import ensure_view_for_transaction
+    from app.services.pdf_report import build_audit_pdf
+    import io as _io
+    fid = UUID(file_id)
+    async for db in _get_db():
+        file_row = (await db.execute(sa_select(EDIFile).where(EDIFile.id == fid))).scalar_one_or_none()
+        if not file_row:
+            raise HTTPException(status_code=404, detail="File not found")
+        ensure_view_for_transaction(user, file_row.transaction_type)
+        parse_row = (await db.execute(sa_select(ParseResult).where(ParseResult.file_id == fid))).scalar_one_or_none()
+        errors = (await db.execute(sa_select(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))).scalars().all()
+        break
+    pdf_bytes = build_audit_pdf(file_row, parse_row, list(errors))
+    safe_name = file_row.filename.replace(" ", "_").replace("/", "_")
+    return StreamingResponse(
+        _io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={safe_name}-audit.pdf"},
+    )
+

@@ -1,4 +1,5 @@
-﻿﻿﻿import { useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
+import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { authFetch } from '../auth/api';
 import { useAuth } from '../auth/AuthProvider';
 import {
@@ -15,180 +16,73 @@ export function Claims837Page() {
   const canClaims = canAny(permissions, CLAIMS_ACCESS_PERMISSIONS);
   const canEnrollment = canAny(permissions, ENROLLMENT_ACCESS_PERMISSIONS);
   const canRemittance = canAny(permissions, REMITTANCE_ACCESS_PERMISSIONS);
+
+  const [allFiles, setAllFiles] = useState([]);
+  const [filteredFiles, setFilteredFiles] = useState([]);
+  const [claimType, setClaimType] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [billedByDate, setBilledByDate] = useState([]);
+  const PAGE_SIZE = 7;
+
   useEffect(() => {
     const previous = document.body.className;
     document.body.className = bodyClassName;
-
-    return () => {
-      document.body.className = previous;
-    };
+    return () => { document.body.className = previous; };
   }, []);
 
   useEffect(() => {
     async function loadClaimsData() {
       try {
         const files = await authFetch('/api/files').then((r) => r.json());
-        const claimFiles = Array.isArray(files) ? files.filter((f) => f.transaction_type === '837p' || f.transaction_type === '837i') : [];
-
-        const tbody = document.getElementById('claims-tbody');
-        const totalEl = document.getElementById('claims-total');
-        const errorsEl = document.getElementById('claims-errors');
-
-        if (totalEl) totalEl.textContent = claimFiles.length.toLocaleString();
-        if (errorsEl) errorsEl.textContent = claimFiles.filter((f) => !f.is_valid).length.toLocaleString();
-
-        if (tbody) {
-          if (claimFiles.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-sm text-slate-400 italic">No 837 claim files uploaded yet. Upload files from the Dashboard.</td></tr>';
-          } else {
-            tbody.innerHTML = '';
-            claimFiles.forEach((file) => {
-              const tr = document.createElement('tr');
-              tr.className = 'hover:bg-primary/5 transition-colors group';
-              const statusClass = file.is_valid ? 'bg-green-100 text-green-700 border-green-200/50' : 'bg-error-container/30 text-error border-error/10';
-              const statusText = file.is_valid ? 'Clean' : 'Error';
-              const statusDot = file.is_valid ? 'bg-green-500' : 'bg-error';
-              tr.innerHTML =
-                '<td class="px-4 py-2 text-xs font-bold text-slate-900">' + file.filename + '</td>' +
-                '<td class="px-4 py-2"><div class="flex flex-col"><span class="text-xs font-semibold text-slate-700">' + (file.transaction_type || '').toUpperCase() + '</span></div></td>' +
-                '<td class="px-4 py-2 text-xs text-slate-600">' + (file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '-') + '</td>' +
-                '<td class="px-4 py-2 text-xs font-bold text-slate-900 text-right">' + file.error_count + ' errors</td>' +
-                '<td class="px-4 py-2 text-center"><span class="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">' + (file.warning_count || 0) + ' warn</span></td>' +
-                '<td class="px-4 py-2"><span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ' + statusClass + ' border"><span class="w-1.5 h-1.5 rounded-full ' + statusDot + '"></span> ' + statusText + '</span></td>' +
-                '<td class="px-4 py-2 text-right"><button class="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-primary" type="button" onclick="localStorage.setItem(\'selectedFileId\',\'' + file.id + '\');window.location.href=\'/master_parser_sleek\'"><span class="material-symbols-outlined text-lg">open_in_new</span></button></td>';
-              tbody.appendChild(tr);
-            });
-          }
-        }
-        const cleanCount = claimFiles.filter(f => f.is_valid).length;
-        const errorCount = claimFiles.filter(f => !f.is_valid).length;
-        const totalBilledEl = document.getElementById('claims-billed-total');
-        const cleanCountEl = document.getElementById('claims-clean-count');
-        const errorCountEl = document.getElementById('claims-error-count');
-        const npiCountEl = document.getElementById('claims-npi-count');
-        if (cleanCountEl) cleanCountEl.textContent = cleanCount;
-        if (errorCountEl) errorCountEl.textContent = errorCount;
-        if (npiCountEl) npiCountEl.textContent = '0';
-        let billedTotal = 0;
-        for (const file of claimFiles) {
-          try {
-            const pr = await authFetch('/api/files/' + file.id + '/parse-result').then((r) => r.json());
-            const claims = pr?.raw_json?.structured_data || [];
-            for (const claim of claims) {
-              billedTotal += parseFloat(claim.total_charge || 0);
+        const claimFiles = Array.isArray(files)
+          ? files.filter((f) => f.transaction_type === '837p' || f.transaction_type === '837i')
+          : [];
+        const dateMap = {};
+        const enriched = await Promise.all(
+          claimFiles.map(async (file) => {
+            let totalBilled = 0;
+            try {
+              const pr = await authFetch('/api/files/' + file.id + '/parse-result').then((r) => r.json());
+              const claims = pr?.raw_json?.structured_data || [];
+              for (const claim of claims) {
+                totalBilled += parseFloat(claim.total_charge || 0);
+              }
+            } catch (e) { /* skip */ }
+            const dateKey = file.uploaded_at ? new Date(file.uploaded_at).toISOString().split('T')[0] : 'unknown';
+            if (dateKey !== 'unknown') {
+              dateMap[dateKey] = (dateMap[dateKey] || 0) + totalBilled;
             }
-          } catch(e) { /* skip */ }
-        }
-        if (totalBilledEl) {
-          if (billedTotal >= 1000000) {
-            totalBilledEl.textContent = '$' + (billedTotal / 1000000).toFixed(1) + 'M';
-          } else if (billedTotal >= 1000) {
-            totalBilledEl.textContent = '$' + (billedTotal / 1000).toFixed(1) + 'K';
-          } else {
-            totalBilledEl.textContent = '$' + billedTotal.toFixed(2);
-          }
-        }
+            return { ...file, totalBilled };
+          })
+        );
+        const billedArr = Object.entries(dateMap)
+          .map(([date, amount]) => ({ date, amount }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+        setBilledByDate(billedArr);
+        setAllFiles(enriched);
+        setFilteredFiles(enriched);
       } catch (err) {
         console.error('Failed to load claims data:', err);
       }
     }
     loadClaimsData();
   }, []);
+
   useEffect(() => {
-    const summaryCards = Array.from(
-      document.querySelectorAll('section.grid.grid-cols-1.md\\:grid-cols-3.gap-6.mb-8 > div')
-    );
-    const statusButtons = Array.from(document.querySelectorAll('aside.w-full.lg\\:w-64 .space-y-1 button'));
-    const claimRows = Array.from(document.querySelectorAll('tbody tr'));
-    const claimTypeInputs = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+    const result = allFiles
+      .filter((f) => claimType === 'all' || f.transaction_type === claimType)
+      .filter((f) =>
+        !searchQuery ||
+        f.filename.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (f.transaction_type || '').toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    setFilteredFiles(result);
+    setCurrentPage(1);
+  }, [allFiles, claimType, searchQuery]);
 
-    function activateSingle(elements, target, activeClasses) {
-      elements.forEach((element) => element.classList.remove(...activeClasses));
-      target.classList.add(...activeClasses);
-    }
-
-    const summaryHandlers = summaryCards.map((card) => {
-      const handleClick = () => {
-        activateSingle(summaryCards, card, ['ring-2', 'ring-primary/30', '-translate-y-0.5']);
-      };
-      const handleKeydown = (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          handleClick();
-        }
-      };
-      card.classList.add('cursor-pointer', 'transition-all');
-      card.tabIndex = 0;
-      card.setAttribute('role', 'button');
-      card.addEventListener('click', handleClick);
-      card.addEventListener('keydown', handleKeydown);
-      return { card, handleClick, handleKeydown };
-    });
-
-    const statusHandlers = statusButtons.map((button) => {
-      const handleClick = () => {
-        activateSingle(statusButtons, button, ['bg-primary/10', 'rounded-xl', 'text-primary']);
-      };
-      button.classList.add('transition-all');
-      button.addEventListener('click', handleClick);
-      return { button, handleClick };
-    });
-
-    const inputHandlers = claimTypeInputs
-      .map((input) => {
-        const label = input.closest('label');
-        if (!label) {
-          return null;
-        }
-        const sync = () => {
-          label.classList.toggle('ring-2', input.checked);
-          label.classList.toggle('ring-primary/20', input.checked);
-        };
-        sync();
-        input.addEventListener('change', sync);
-        return { input, sync };
-      })
-      .filter(Boolean);
-
-    const rowHandlers = claimRows.map((row) => {
-      const handleClick = () => {
-        row.classList.toggle('bg-blue-50/50');
-        const firstCell = row.cells && row.cells[0];
-        if (firstCell) {
-          console.log('Row clicked:', firstCell.innerText);
-        }
-      };
-      const handleKeydown = (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          handleClick();
-        }
-      };
-      row.classList.add('cursor-pointer');
-      row.tabIndex = 0;
-      row.setAttribute('role', 'button');
-      row.addEventListener('click', handleClick);
-      row.addEventListener('keydown', handleKeydown);
-      return { row, handleClick, handleKeydown };
-    });
-
-    return () => {
-      summaryHandlers.forEach(({ card, handleClick, handleKeydown }) => {
-        card.removeEventListener('click', handleClick);
-        card.removeEventListener('keydown', handleKeydown);
-      });
-      statusHandlers.forEach(({ button, handleClick }) => {
-        button.removeEventListener('click', handleClick);
-      });
-      inputHandlers.forEach(({ input, sync }) => {
-        input.removeEventListener('change', sync);
-      });
-      rowHandlers.forEach(({ row, handleClick, handleKeydown }) => {
-        row.removeEventListener('click', handleClick);
-        row.removeEventListener('keydown', handleKeydown);
-      });
-    };
-  }, []);
+  const totalPages = Math.ceil(filteredFiles.length / PAGE_SIZE);
+  const pageFiles = filteredFiles.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <>
@@ -196,20 +90,14 @@ export function Claims837Page() {
         <div className="flex items-center gap-8">
           <span
             className="text-xl font-bold tracking-tighter text-slate-900 dark:text-white cursor-pointer"
-            onClick={() => {
-              window.location.href = '/dashboard_sleek';
-            }}
+            onClick={() => { window.location.href = '/dashboard_sleek'; }}
           >
             EdiPro
           </span>
           <nav className="hidden md:flex gap-6">
-            <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/dashboard_sleek">
-              Dashboard
-            </a>
+            <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/dashboard_sleek">Dashboard</a>
             {canClaims ? (
-              <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/837_claims_view">
-                Reports
-              </a>
+              <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/837_claims_view">Reports</a>
             ) : null}
           </nav>
         </div>
@@ -220,6 +108,12 @@ export function Claims837Page() {
               className="bg-transparent border-none focus:ring-0 text-sm w-48 placeholder:text-slate-400"
               placeholder="Search files..."
               type="text"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.target.value.trim()) {
+                  localStorage.setItem('globalSearch', e.target.value.trim());
+                  window.location.href = '/master_parser_sleek';
+                }
+              }}
             />
           </div>
           <a className="p-2 hover:bg-slate-100/50 rounded-full transition-all active:scale-95" href="/notifications" aria-label="Open notifications">
@@ -229,27 +123,15 @@ export function Claims837Page() {
             <span className="material-symbols-outlined text-slate-600">settings</span>
           </a>
           <a className="h-8 w-8 rounded-full overflow-hidden bg-primary/10 ring-2 ring-white shadow-sm" href="/user_profile" aria-label="Open user profile">
-            <img
-              className="w-full h-full object-cover"
-              data-alt="User Profile Avatar"
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuCgEW3dXZf1xhBDmpkybJnr21bF6HNiuHphHXF5ZMfTdghbWasho84cnLb8S8iQpaeSBw-fhCGaMQOMakuyIgNossftgFDuvXrrfI8AS1HQ8aXsiiN5jRf5UzMPR3aYhNr7MVZQn2pGVvp51bgB4LzOmkYlr8r84vKcVrNDmd6f9yQ467G7lXlyPhygUgNeyILrY9rjqiqU5HuLzz86Snbq7D27lzvqCYzPfDWO80nIxy6mb85n7yl0OJhP3SQqzcbgwDSKCUiG7ach"
-              alt="User Profile Avatar"
-            />
+            <img className="w-full h-full object-cover" data-alt="User Profile Avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCgEW3dXZf1xhBDmpkybJnr21bF6HNiuHphHXF5ZMfTdghbWasho84cnLb8S8iQpaeSBw-fhCGaMQOMakuyIgNossftgFDuvXrrfI8AS1HQ8aXsiiN5jRf5UzMPR3aYhNr7MVZQn2pGVvp51bgB4LzOmkYlr8r84vKcVrNDmd6f9yQ467G7lXlyPhygUgNeyILrY9rjqiqU5HuLzz86Snbq7D27lzvqCYzPfDWO80nIxy6mb85n7yl0OJhP3SQqzcbgwDSKCUiG7ach" alt="User Profile Avatar" />
           </a>
         </div>
       </header>
 
-      <aside className="fixed left-0 top-0 h-full w-64 z-40 bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-2xl border-r border-slate-200/30 dark:border-slate-800/30 shadow-xl dark:shadow-2xl flex flex-col h-full py-6 pt-20">
-        <div
-          className="px-6 mb-8 flex items-center gap-3 cursor-pointer"
-          onClick={() => {
-            window.location.href = '/dashboard_sleek';
-          }}
-        >
+      <aside className="fixed left-0 top-0 h-full w-64 z-40 bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-2xl border-r border-slate-200/30 dark:border-slate-800/30 shadow-xl dark:shadow-2xl flex flex-col py-6 pt-20">
+        <div className="px-6 mb-8 flex items-center gap-3 cursor-pointer" onClick={() => { window.location.href = '/dashboard_sleek'; }}>
           <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-            <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>
-              hub
-            </span>
+            <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>hub</span>
           </div>
           <div>
             <h2 className="text-lg font-black text-slate-900 dark:text-white leading-none">HealthConnect</h2>
@@ -257,74 +139,39 @@ export function Claims837Page() {
           </div>
         </div>
         <nav className="flex-1 px-2 space-y-1">
-          <a
-            className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]"
-            href="/dashboard_sleek"
-            data-nav-link="true"
-          >
+          <a className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]" href="/dashboard_sleek" data-nav-link="true">
             <span className="material-symbols-outlined">dashboard</span> Dashboard
           </a>
-          <a
-            className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]"
-            href="/master_parser_sleek"
-            data-nav-link="true"
-          >
+          <a className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]" href="/master_parser_sleek" data-nav-link="true">
             <span className="material-symbols-outlined">analytics</span> Master Parser
           </a>
           {canRemittance ? (
-            <a
-              className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]"
-              href="/835_remittance_sleek"
-              data-nav-link="true"
-            >
+            <a className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]" href="/835_remittance_sleek" data-nav-link="true">
               <span className="material-symbols-outlined">payments</span> 835 Remittance
             </a>
           ) : null}
           {canEnrollment ? (
-            <a
-              className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]"
-              href="/834_enrollment_sleek"
-              data-nav-link="true"
-            >
+            <a className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 mx-2 rounded-lg flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide hover:translate-x-1 transition-transform duration-300 active:scale-[0.98]" href="/834_enrollment_sleek" data-nav-link="true">
               <span className="material-symbols-outlined">group_add</span> 834 Enrollment
             </a>
           ) : null}
           {canClaims ? (
-            <a
-              className="bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide scale-100 active:scale-[0.98] transition-transform duration-300"
-              href="/837_claims_view"
-              data-nav-link="true"
-            >
-              <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
-                description
-              </span>{' '}
-              837 Claims
+            <a className="bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide scale-100 active:scale-[0.98] transition-transform duration-300" href="/837_claims_view" data-nav-link="true">
+              <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>description</span>{' '}837 Claims
             </a>
           ) : null}
         </nav>
         <div className="mt-auto px-4 pb-4">
-          <button
-            className="w-full bg-primary text-white rounded-xl py-3 text-sm font-bold shadow-lg shadow-primary/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-all hover:brightness-95"
-            onClick={() => console.log('Open New Submission Dialog')}
-            type="button"
-          >
+          <button className="w-full bg-primary text-white rounded-xl py-3 text-sm font-bold shadow-lg shadow-primary/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-all hover:brightness-95" onClick={() => console.log('Open New Submission Dialog')} type="button">
             <span className="material-symbols-outlined text-[20px]">add_circle</span>
             New Submission
           </button>
         </div>
         <div className="px-2 pt-4 border-t border-slate-200/30 mx-4 space-y-1">
-          <a
-            className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 rounded-lg flex items-center gap-3 px-4 py-2 text-xs font-medium tracking-wide hover:translate-x-1 transition-transform duration-300"
-            href="/help_center"
-            data-nav-link="true"
-          >
+          <a className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 rounded-lg flex items-center gap-3 px-4 py-2 text-xs font-medium tracking-wide hover:translate-x-1 transition-transform duration-300" href="/help_center" data-nav-link="true">
             <span className="material-symbols-outlined text-[18px]">help</span> Help Center
           </a>
-          <a
-            className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 rounded-lg flex items-center gap-3 px-4 py-2 text-xs font-medium tracking-wide hover:translate-x-1 transition-transform duration-300"
-            href="/documentation"
-            data-nav-link="true"
-          >
+          <a className="text-slate-600 dark:text-slate-400 hover:bg-slate-200/30 rounded-lg flex items-center gap-3 px-4 py-2 text-xs font-medium tracking-wide hover:translate-x-1 transition-transform duration-300" href="/documentation" data-nav-link="true">
             <span className="material-symbols-outlined text-[18px]">menu_book</span> Documentation
           </a>
         </div>
@@ -343,12 +190,9 @@ export function Claims837Page() {
             </div>
             <div className="flex gap-2">
               <div className="bg-surface-container-high p-1 rounded-xl flex">
-                <button className="px-4 py-2 bg-white shadow-sm rounded-lg text-sm font-bold text-primary" type="button">
-                  837P <span className="text-[10px] text-slate-400 font-normal ml-1">Professional</span>
-                </button>
-                <button className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700" type="button">
-                  837I <span className="text-[10px] text-slate-400 font-normal ml-1">Institutional</span>
-                </button>
+                <button onClick={() => setClaimType('all')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${claimType === 'all' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`} type="button">All</button>
+                <button onClick={() => setClaimType('837p')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${claimType === '837p' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`} type="button">837P <span className="text-[10px] font-normal ml-1">Professional</span></button>
+                <button onClick={() => setClaimType('837i')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${claimType === '837i' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`} type="button">837I <span className="text-[10px] font-normal ml-1">Institutional</span></button>
               </div>
             </div>
           </header>
@@ -364,12 +208,11 @@ export function Claims837Page() {
                 </span>
               </div>
               <p className="text-slate-500 text-sm font-medium">Total Claims Audited</p>
-              <h3 className="text-3xl font-black mt-1"><span id="claims-total">0</span></h3>
+              <h3 className="text-3xl font-black mt-1">{allFiles.length}</h3>
               <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-500">
                 <span className="material-symbols-outlined text-9xl">receipt_long</span>
               </div>
             </div>
-
             <div className="glass-panel p-6 rounded-2xl shadow-sm border border-outline-variant/10 relative overflow-hidden group">
               <div className="flex justify-between items-start mb-4">
                 <div className="w-12 h-12 bg-tertiary/10 rounded-xl flex items-center justify-center text-tertiary">
@@ -378,12 +221,13 @@ export function Claims837Page() {
                 <span className="text-xs font-bold text-slate-400 px-2 py-1">Last 24h</span>
               </div>
               <p className="text-slate-500 text-sm font-medium">Total Billed Amount</p>
-              <h3 className="text-3xl font-black mt-1"><span id="claims-billed-total">--</span></h3>
+              <h3 className="text-3xl font-black mt-1">
+                ${allFiles.reduce((s, f) => s + (f.totalBilled || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
               <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-500">
                 <span className="material-symbols-outlined text-9xl">monetization_on</span>
               </div>
             </div>
-
             <div className="glass-panel p-6 rounded-2xl shadow-sm border border-outline-variant/10 relative overflow-hidden group">
               <div className="flex justify-between items-start mb-4">
                 <div className="w-12 h-12 bg-error-container/30 rounded-xl flex items-center justify-center text-error">
@@ -394,7 +238,7 @@ export function Claims837Page() {
                 </span>
               </div>
               <p className="text-slate-500 text-sm font-medium">Validation Errors</p>
-              <h3 className="text-3xl font-black mt-1"><span id="claims-errors">0</span></h3>
+              <h3 className="text-3xl font-black mt-1">{allFiles.filter((f) => !f.is_valid).length}</h3>
               <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-500">
                 <span className="material-symbols-outlined text-9xl">bug_report</span>
               </div>
@@ -407,11 +251,11 @@ export function Claims837Page() {
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Claim Types</h4>
                 <div className="space-y-2">
                   <label className="flex items-center gap-3 p-3 glass-panel rounded-xl cursor-pointer hover:bg-white transition-colors border border-outline-variant/10">
-                    <input defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" />
+                    <input readOnly checked={claimType === 'all' || claimType === '837p'} className="rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" />
                     <span className="text-sm font-semibold text-slate-700">837P Professional</span>
                   </label>
                   <label className="flex items-center gap-3 p-3 glass-panel rounded-xl cursor-pointer hover:bg-white transition-colors border border-outline-variant/10">
-                    <input className="rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" />
+                    <input readOnly checked={claimType === 'all' || claimType === '837i'} className="rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" />
                     <span className="text-sm font-semibold text-slate-700">837I Institutional</span>
                   </label>
                 </div>
@@ -420,32 +264,40 @@ export function Claims837Page() {
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Validation Status</h4>
                 <div className="space-y-1">
                   <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
-                    <span className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-green-500"></span> Clean Claims
-                    </span>
-                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded group-hover:bg-primary-fixed"><span id="claims-clean-count">0</span></span>
+                    <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500"></span> Clean Claims</span>
+                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded group-hover:bg-primary-fixed">{allFiles.filter((f) => f.is_valid).length}</span>
                   </button>
                   <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
-                    <span className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-error"></span> Missing Fields
-                    </span>
-                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded"><span id="claims-error-count">0</span></span>
+                    <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-error"></span> Missing Fields</span>
+                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">{allFiles.filter((f) => !f.is_valid).length}</span>
                   </button>
                   <button className="w-full flex justify-between items-center p-2 text-sm font-medium text-slate-600 hover:text-primary group" type="button">
-                    <span className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-amber-500"></span> NPI Mismatch
-                    </span>
-                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded"><span id="claims-npi-count">0</span></span>
+                    <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500"></span> NPI Mismatch</span>
+                    <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">0</span>
                   </button>
                 </div>
               </div>
+              {allFiles.length > 0 && (() => {
+                const cleanCount = allFiles.filter(f=>f.is_valid).length;
+                const errCount = allFiles.filter(f=>!f.is_valid).length;
+                const donutData = [{name:'Clean', value:cleanCount, color:'#22c55e'},{name:'Errors', value:errCount, color:'#ef4444'}].filter(d=>d.value>0);
+                return (
+                  <div className="mt-6 pt-4 border-t border-outline-variant/10">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Validation Breakdown</h4>
+                    <ResponsiveContainer width="100%" height={140}>
+                      <PieChart>
+                        <Pie data={donutData} cx="50%" cy="50%" innerRadius={38} outerRadius={55} paddingAngle={3} dataKey="value">
+                          {donutData.map((entry,i) => <Cell key={i} fill={entry.color}/>)}
+                        </Pie>
+                        <Tooltip formatter={(v,n)=>[v+' files', n]} contentStyle={{borderRadius:'10px',border:'1px solid #e2e8f0',fontSize:'11px'}}/>
+                        <Legend iconType="circle" iconSize={8} formatter={(v,e) => <span style={{fontSize:'11px',color:'#64748b'}}>{v}: {e.payload.value}</span>}/>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })()}
               <div className="pt-4">
-                <img
-                  alt="Abstract Healthcare Data Visualization"
-                  className="w-full h-32 rounded-2xl object-cover opacity-60 mix-blend-multiply"
-                  data-alt="Abstract soft blue medical data pattern"
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuCGUXPfvfASWfUidRvyAHmPb8uIquQXJU8QUkZPZC7kqpl93zpM_bqEP_Wgjjz4eCGI3K_MO4Bqxz2UddM6FIUfnSeNzlSGVQhqS8_SYpEj81VmDWgshch8uFx82MjVC_P9f7hYfrYN9of7iyLVIIBuEC4a6ujevZJBqnIROauOwJZ55VehXqk0O7gi_VjFcrNSRwdKhiaTyc-mdiyzYKSzZMo5KsyJClh_Rrm0EEdKPtBfKhvmClwJL5z4prC4wSJ60IZhFqnfjhca"
-                />
+                <img alt="Abstract Healthcare Data Visualization" className="w-full h-32 rounded-2xl object-cover opacity-60 mix-blend-multiply" data-alt="Abstract soft blue medical data pattern" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCGUXPfvfASWfUidRvyAHmPb8uIquQXJU8QUkZPZC7kqpl93zpM_bqEP_Wgjjz4eCGI3K_MO4Bqxz2UddM6FIUfnSeNzlSGVQhqS8_SYpEj81VmDWgshch8uFx82MjVC_P9f7hYfrYN9of7iyLVIIBuEC4a6ujevZJBqnIROauOwJZ55VehXqk0O7gi_VjFcrNSRwdKhiaTyc-mdiyzYKSzZMo5KsyJClh_Rrm0EEdKPtBfKhvmClwJL5z4prC4wSJ60IZhFqnfjhca" />
               </div>
             </aside>
 
@@ -455,6 +307,8 @@ export function Claims837Page() {
                   <div className="relative flex-1 max-w-md">
                     <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
                     <input
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/20 placeholder:text-slate-400"
                       placeholder="Search by Claim ID, Provider, or Subscriber..."
                       type="text"
@@ -464,11 +318,7 @@ export function Claims837Page() {
                     <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-all" type="button">
                       <span className="material-symbols-outlined">filter_list</span>
                     </button>
-                    <button
-                      className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-all"
-                      onClick={() => alert('Preparing report for download...')}
-                      type="button"
-                    >
+                    <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-all" onClick={() => alert('Preparing report for download...')} type="button">
                       <span className="material-symbols-outlined">download</span>
                     </button>
                   </div>
@@ -479,214 +329,105 @@ export function Claims837Page() {
                     <thead>
                       <tr className="bg-surface-container-low/50">
                         <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10">Claim ID</th>
-                        <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10">Provider (NPI)</th>
-                        <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10">Subscriber</th>
+                        <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10">Type</th>
+                        <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10">Date</th>
                         <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10 text-right">Billed Amt</th>
-                        <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10 text-center">ICD-10</th>
+                        <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10 text-center">Errors</th>
                         <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-outline-variant/10">Validation Status</th>
                         <th className="px-4 py-3 border-b border-outline-variant/10"></th>
                       </tr>
                     </thead>
                     <tbody id="claims-tbody" className="divide-y divide-outline-variant/5">
-                      <tr className="hover:bg-primary/5 transition-colors group">
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900">#CLM-29384-01</td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-slate-700">Northside Clinic</span>
-                            <span className="text-[10px] text-slate-400">1294857204</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-xs text-slate-600">Johnathan Miller (A9342)</td>
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900 text-right">$1,245.00</td>
-                        <td className="px-4 py-2 text-center">
-                          <span className="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">Z00.00</span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-green-100 text-green-700 border border-green-200/50">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> Clean
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-primary" type="button">
-                            <span className="material-symbols-outlined text-lg">more_vert</span>
-                          </button>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-primary/5 transition-colors group">
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900">#CLM-30192-44</td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-slate-700">General Imaging</span>
-                            <span className="text-[10px] text-slate-400">1049285741</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-xs text-slate-600">Sarah West (W2201)</td>
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900 text-right">$4,820.50</td>
-                        <td className="px-4 py-2 text-center">
-                          <span className="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">M54.5</span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-error-container/30 text-error border border-error/10">
-                            <span className="w-1.5 h-1.5 rounded-full bg-error"></span> Error
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-primary" type="button">
-                            <span className="material-symbols-outlined text-lg">more_vert</span>
-                          </button>
-                        </td>
-                      </tr>
-                      <tr className="bg-tertiary-fixed/10 hover:bg-tertiary-fixed/20 transition-colors group">
-                        <td className="px-4 py-2 text-xs font-bold text-tertiary">#CLM-44910-AI</td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-slate-700">St. Mary's Ortho</span>
-                            <span className="text-[10px] text-slate-400">1992038475</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-xs text-slate-600">Robert Chen (C0012)</td>
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900 text-right">$312.00</td>
-                        <td className="px-4 py-2 text-center">
-                          <span className="text-[10px] font-bold bg-tertiary-fixed px-2 py-0.5 rounded text-on-tertiary-fixed-variant">S82.1</span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-tertiary-fixed-dim text-on-tertiary-fixed-variant border border-tertiary/20">
-                            <span className="material-symbols-outlined text-[10px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                              auto_awesome
-                            </span>{' '}
-                            Smart Parsed
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-primary" type="button">
-                            <span className="material-symbols-outlined text-lg">more_vert</span>
-                          </button>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-primary/5 transition-colors group">
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900">#CLM-99201-88</td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-slate-700">CVS Health</span>
-                            <span className="text-[10px] text-slate-400">1938475620</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-xs text-slate-600">Linda Harris (H8892)</td>
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900 text-right">$89.12</td>
-                        <td className="px-4 py-2 text-center">
-                          <span className="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">E11.9</span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase bg-green-100 text-green-700 tracking-tighter">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> Clean
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-primary" type="button">
-                            <span className="material-symbols-outlined text-lg">more_vert</span>
-                          </button>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-primary/5 transition-colors group">
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900">#CLM-12093-02</td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-slate-700">Urgent Care P.C.</span>
-                            <span className="text-[10px] text-slate-400">1002938475</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-xs text-slate-600">Kevin Durant (D3302)</td>
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900 text-right">$225.00</td>
-                        <td className="px-4 py-2 text-center">
-                          <span className="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">J01.9</span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase bg-green-100 text-green-700 tracking-tighter">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> Clean
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-primary" type="button">
-                            <span className="material-symbols-outlined text-lg">more_vert</span>
-                          </button>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-primary/5 transition-colors group">
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900">#CLM-00912-33</td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-slate-700">City Radiology</span>
-                            <span className="text-[10px] text-slate-400">1102938482</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-xs text-slate-600">Amy Santiago (S0023)</td>
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900 text-right">$1,150.00</td>
-                        <td className="px-4 py-2 text-center">
-                          <span className="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">R05.1</span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase bg-error-container/30 text-error border border-error/10 tracking-tighter">
-                            <span className="w-1.5 h-1.5 rounded-full bg-error"></span> Error
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-primary" type="button">
-                            <span className="material-symbols-outlined text-lg">more_vert</span>
-                          </button>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-primary/5 transition-colors group">
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900">#CLM-55012-91</td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-slate-700">Metro Heart</span>
-                            <span className="text-[10px] text-slate-400">1882736450</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-xs text-slate-600">Marcus Wright (W4401)</td>
-                        <td className="px-4 py-2 text-xs font-bold text-slate-900 text-right">$5,200.00</td>
-                        <td className="px-4 py-2 text-center">
-                          <span className="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">I10.0</span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase bg-green-100 text-green-700 tracking-tighter">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> Clean
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-primary" type="button">
-                            <span className="material-symbols-outlined text-lg">more_vert</span>
-                          </button>
-                        </td>
-                      </tr>
+                      {pageFiles.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400 italic">
+                            {allFiles.length === 0 ? 'No 837 claim files uploaded yet.' : 'No results match your search.'}
+                          </td>
+                        </tr>
+                      ) : pageFiles.map((file) => {
+                        const isValid = file.is_valid;
+                        const statusClass = isValid ? 'bg-green-100 text-green-700 border-green-200/50' : 'bg-error-container/30 text-error border-error/10';
+                        const statusText = isValid ? 'Clean' : 'Error';
+                        const statusDot = isValid ? 'bg-green-500' : 'bg-error';
+                        return (
+                          <tr key={file.id} className="hover:bg-primary/5 transition-colors group cursor-pointer" onClick={() => { localStorage.setItem('selectedFileId', file.id); window.location.href = '/master_parser_sleek'; }}>
+                            <td className="px-4 py-3 text-xs font-bold text-slate-900">{file.filename}</td>
+                            <td className="px-4 py-3"><span className="text-xs font-semibold text-slate-700">{(file.transaction_type || '').toUpperCase()}</span></td>
+                            <td className="px-4 py-3 text-xs text-slate-600">{file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '-'}</td>
+                            <td className="px-4 py-3 text-xs font-bold text-slate-900 text-right">${(file.totalBilled || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td className="px-4 py-3 text-center"><span className="text-[10px] font-bold bg-surface-container-highest px-2 py-0.5 rounded text-slate-600">{file.error_count || 0} err</span></td>
+                            <td className="px-4 py-3"><span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border ${statusClass}`}><span className={`w-1.5 h-1.5 rounded-full ${statusDot}`}></span> {statusText}</span></td>
+                            <td className="px-4 py-3 text-right"><span className="material-symbols-outlined text-lg text-slate-300 group-hover:text-primary">open_in_new</span></td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
 
                 <div className="p-4 border-t border-outline-variant/5 bg-surface-container-low/30 flex items-center justify-between">
-                  <span className="text-xs text-slate-500">
-                    Showing <strong>1 - 8</strong> of 42,891 results
-                  </span>
+                  <span className="text-xs text-slate-500">Showing <strong>{Math.min((currentPage - 1) * PAGE_SIZE + 1, filteredFiles.length)}&#8211;{Math.min(currentPage * PAGE_SIZE, filteredFiles.length)}</strong> of {filteredFiles.length} results</span>
                   <div className="flex gap-1">
-                    <button className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-white hover:text-primary transition-all" type="button">
+                    <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-white hover:text-primary transition-all disabled:opacity-30" type="button">
                       <span className="material-symbols-outlined text-lg">chevron_left</span>
                     </button>
-                    <button className="w-8 h-8 rounded-lg flex items-center justify-center bg-white text-primary font-bold shadow-sm text-xs" type="button">
-                      1
-                    </button>
-                    <button className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-600 hover:bg-white transition-all text-xs" type="button">
-                      2
-                    </button>
-                    <button className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-600 hover:bg-white transition-all text-xs" type="button">
-                      3
-                    </button>
-                    <span className="w-8 h-8 flex items-center justify-center text-slate-400">...</span>
-                    <button className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-white hover:text-primary transition-all" type="button">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                      .map((p, idx, arr) => (
+                        <span key={p}>
+                          {idx > 0 && arr[idx - 1] !== p - 1 && <span className="w-8 h-8 flex items-center justify-center text-slate-400">...</span>}
+                          <button onClick={() => setCurrentPage(p)} className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${p === currentPage ? 'bg-white text-primary shadow-sm' : 'text-slate-600 hover:bg-white'}`} type="button">{p}</button>
+                        </span>
+                      ))}
+                    <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages || totalPages === 0} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-white hover:text-primary transition-all disabled:opacity-30" type="button">
                       <span className="material-symbols-outlined text-lg">chevron_right</span>
                     </button>
                   </div>
                 </div>
               </div>
+
+              {billedByDate.length > 0 && (
+                <div className="mt-8 bg-white rounded-2xl border border-outline-variant/10 shadow-sm p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h3 className="text-base font-bold text-on-surface">Billed Amount Over Time</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">Total billed per upload date across all 837 files</p>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                      <span className="w-3 h-3 rounded-full bg-primary inline-block"></span>Billed ($)
+                    </div>
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={billedByDate} margin={{top:10, right:20, left:0, bottom:0}}>
+                      <defs>
+                        <linearGradient id="billedGrad837" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15}/>
+                          <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
+                      <XAxis dataKey="date" tickFormatter={d => new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'})} tick={{fontSize:11, fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
+                      <YAxis tickFormatter={v => v >= 1000 ? '$'+(v/1000).toFixed(0)+'k' : '$'+v} tick={{fontSize:11, fill:'#94a3b8'}} axisLine={false} tickLine={false} width={50}/>
+                      <Tooltip formatter={(v) => ['$'+v.toLocaleString('en-US',{minimumFractionDigits:2}), 'Billed']} labelFormatter={d => new Date(d).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} contentStyle={{borderRadius:'12px',border:'1px solid #e2e8f0',boxShadow:'0 4px 24px rgba(0,0,0,0.08)',fontSize:'12px'}}/>
+                      <Area type="monotone" dataKey="amount" stroke="#4f46e5" strokeWidth={2.5} fill="url(#billedGrad837)" dot={{fill:'#4f46e5',strokeWidth:0,r:3}} activeDot={{r:5}}/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                  <div className="grid grid-cols-3 gap-4 mt-6 pt-4 border-t border-outline-variant/10">
+                    <div className="text-center">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Files</p>
+                      <p className="text-lg font-black text-on-surface">{filteredFiles.length}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Billed</p>
+                      <p className="text-lg font-black text-primary">${filteredFiles.reduce((s,f)=>s+(f.totalBilled||0),0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Clean Rate</p>
+                      <p className="text-lg font-black text-green-600">{filteredFiles.length > 0 ? Math.round((filteredFiles.filter(f=>f.is_valid).length/filteredFiles.length)*100) : 0}%</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -694,5 +435,3 @@ export function Claims837Page() {
     </>
   );
 }
-
-

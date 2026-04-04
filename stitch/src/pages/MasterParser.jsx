@@ -1,4 +1,5 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { authFetch } from '../auth/api';
 import { useAuth } from '../auth/AuthProvider';
 import {
@@ -492,15 +493,22 @@ export function MasterParserPage() {
       });
       const data = await res.json();
       if (data.success) {
-        const parseResult = await authFetch('/api/files/' + currentFileId + '/parse-result').then((r) => r.json());
-        const reportText = parseResult?.raw_json?.report || '';
-        setOverviewText(buildOverviewFromParse(null, reportText));
-        const errorsRes = await authFetch('/api/files/' + currentFileId + '/errors').then((r) => r.json());
-        setValidationIssues(normalizeDbIssues(errorsRes));
+        // Update overview from fresh parse result
+        if (data.new_parse_result?.report) {
+          setOverviewText(buildOverviewFromParse(null, data.new_parse_result.report));
+        }
+        // Update validation issues from response
+        if (data.remaining_errors) {
+          setValidationIssues(normalizeDbIssues(data.remaining_errors));
+        } else {
+          const errorsRes = await authFetch('/api/files/' + currentFileId + '/errors').then((r) => r.json());
+          setValidationIssues(Array.isArray(errorsRes) ? normalizeDbIssues(errorsRes) : []);
+        }
         triggerCopilotAnalysis(currentFileId);
       }
     } catch (e) {
-      alert('Error applying fix: ' + e.message);
+      console.error('Fix error:', e);
+      alert('Error applying fix.');
     } finally {
       setFixLoading(false);
     }
@@ -631,6 +639,11 @@ export function MasterParserPage() {
       await parseRawContent(formatted, reportText, { setIssues: true, setOverview: true });
       setRawDirty(false);
       setRawSaveStatus(`Applied ${updates} fix${updates === 1 ? '' : 'es'}`);
+      // Reload errors from DB after fix
+      try {
+        const errorsRes = await authFetch('/api/files/' + currentFileId + '/errors').then((r) => r.json());
+        setValidationIssues(Array.isArray(errorsRes) ? normalizeDbIssues(errorsRes) : []);
+      } catch (e) { /* skip */ }
     } catch (err) {
       setRawSaveStatus(err?.message || 'Fix failed');
     } finally {
@@ -680,6 +693,20 @@ export function MasterParserPage() {
     async function loadFileData() {
       setRawLoading(true);
       try {
+        const globalSearch = localStorage.getItem('globalSearch');
+        if (globalSearch) {
+          localStorage.removeItem('globalSearch');
+          try {
+            const allFiles = await fetch('/api/files').then((r) => r.json());
+            const match = Array.isArray(allFiles) && allFiles.find((f) =>
+              f.filename.toLowerCase().includes(globalSearch.toLowerCase()) ||
+              (f.original_filename || '').toLowerCase().includes(globalSearch.toLowerCase())
+            );
+            if (match) {
+              localStorage.setItem('selectedFileId', match.id);
+            }
+          } catch (e) { /* skip */ }
+        }
         const selectedFileId = localStorage.getItem('selectedFileId');
         const submissions = JSON.parse(localStorage.getItem('ediSubmissions') || '[]');
         const latest = submissions.length > 0 ? submissions[submissions.length - 1] : null;
@@ -705,6 +732,21 @@ export function MasterParserPage() {
         setCurrentFileId(id);
         triggerCopilotAnalysis(id);
 
+        // Wire JSON download button
+        const jsonBtn = document.getElementById('json-download-btn');
+        if (jsonBtn) {
+          jsonBtn.onclick = () => {
+            const exportData = { file_info: fileInfo, parse_result: parseResult };
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = (fileInfo?.filename || 'edi-export') + '.json';
+            a.click();
+            URL.revokeObjectURL(url);
+          };
+        }
+
         let rawText = '';
         try {
           const rawRes = await authFetch('/api/files/' + id + '/raw');
@@ -725,12 +767,21 @@ export function MasterParserPage() {
           setRawContent(formatted);
           setRawDirty(false);
           try {
-            await parseRawContent(formatted, reportText, { setIssues: true, setOverview: false });
-          } catch (err) {
-            setValidationIssues([]);
-          }
+            await parseRawContent(formatted, reportText, { setIssues: false, setOverview: false });
+          } catch (err) { /* skip */ }
         } else {
           setRawContent('Raw EDI content unavailable. Please check the file source.');
+        }
+        // Load errors from DB as source of truth
+        try {
+          const errorsRes = await authFetch('/api/files/' + id + '/errors').then((r) => r.json());
+          if (Array.isArray(errorsRes) && errorsRes.length > 0) {
+            setValidationIssues(normalizeDbIssues(errorsRes));
+          } else {
+            setValidationIssues([]);
+          }
+        } catch (err) {
+          setValidationIssues([]);
         }
       } catch (err) {
         console.error('Failed to load EDI file data:', err);
@@ -962,6 +1013,7 @@ export function MasterParserPage() {
       </aside>
 
       <main className="ml-0 md:ml-64 pt-20 px-4 md:px-8 pb-8 min-h-screen bg-surface">
+        <div className="flex flex-col">
         <div
           ref={paneContainerRef}
           className="flex flex-col xl:flex-row gap-4 xl:gap-0 min-h-[calc(100vh-140px)] xl:h-[calc(100vh-140px)] xl:overflow-hidden"
@@ -994,6 +1046,15 @@ export function MasterParserPage() {
                     type="button"
                   >
                     {revalidateLoading ? 'Checking...' : 'Revalidate'}
+                  </button>
+                  <button
+                    id="json-download-btn"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-lg transition-all"
+                    title="Download as JSON"
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-sm">data_object</span>
+                    JSON
                   </button>
                 </div>
               </div>
@@ -1175,7 +1236,7 @@ export function MasterParserPage() {
                           <div className="flex flex-col gap-2">
                             {chatMessages.map((msg, i) => (
                               <div key={i} className={'text-xs p-2.5 rounded-xl ' + (msg.role === 'user' ? 'bg-primary/10 text-on-surface ml-4' : 'bg-white border border-outline-variant/20 text-on-surface mr-4')}>
-                                <span className="font-bold text-primary">{msg.role === 'user' ? 'You' : 'Copilot'}:</span>{' '}{msg.content}
+                                <span className="font-bold text-primary">{msg.role === 'user' ? 'You' : 'Copilot'}:</span>{' '}{msg.role === 'user' ? msg.content : <ReactMarkdown components={{ h1: ({children}) => <span className="block font-bold text-xs mt-1">{children}</span>, h2: ({children}) => <span className="block font-bold text-xs mt-1">{children}</span>, h3: ({children}) => <span className="block font-bold text-xs mt-1 text-on-surface">{children}</span>, strong: ({children}) => <strong className="font-bold text-on-surface">{children}</strong>, ul: ({children}) => <ul className="list-disc list-inside space-y-0.5 mt-0.5">{children}</ul>, li: ({children}) => <li className="text-xs">{children}</li>, p: ({children}) => <span className="block mt-0.5">{children}</span> }}>{msg.content}</ReactMarkdown>}
                               </div>
                             ))}
                             {chatLoading ? (
@@ -1311,6 +1372,56 @@ export function MasterParserPage() {
               </div>
             </div>
           </section>
+        </div>
+        <div className="px-6 py-4 border-t border-slate-200/30 bg-white/80 backdrop-blur-sm flex items-center gap-4 flex-wrap">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mr-2">Export</span>
+          <button
+            disabled={!currentFileId}
+            onClick={async () => {
+              if (!currentFileId) return;
+              try {
+                const res = await authFetch('/api/export/summary-pdf/' + currentFileId);
+                if (!res.ok) throw new Error('PDF generation failed');
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = (fileName || 'edi-summary') + '.pdf';
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (e) { alert('PDF export failed: ' + e.message); }
+            }}
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold shadow-md shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-40"
+            type="button"
+          >
+            <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+            Download PDF Summary
+          </button>
+          <button
+            disabled={!currentFileId}
+            onClick={async () => {
+              if (!currentFileId) return;
+              try {
+                const res = await authFetch('/api/files/' + currentFileId + '/raw');
+                if (!res.ok) throw new Error('File not available');
+                const text = await res.text();
+                const blob = new Blob([text], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = (fileName || 'corrected') + '.edi';
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (e) { alert('Download failed: ' + e.message); }
+            }}
+            className="flex items-center gap-2 px-5 py-2.5 bg-surface-container-highest text-on-surface rounded-xl text-sm font-bold border border-outline-variant/20 hover:bg-white hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-40"
+            type="button"
+          >
+            <span className="material-symbols-outlined text-[18px]">download</span>
+            Download Corrected EDI
+          </button>
+          {rawSaveStatus ? <span className="text-xs text-outline italic ml-2">{rawSaveStatus}</span> : null}
+        </div>
         </div>
       </main>
 

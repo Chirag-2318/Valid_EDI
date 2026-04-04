@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import copy
 import json
@@ -56,8 +56,7 @@ async def _fetch_context(file_id: str, db: AsyncSession, user: UserContext) -> d
         "receiver_id": parse_row.receiver_id if parse_row else None,
         "interchange_date": str(parse_row.interchange_date) if parse_row and parse_row.interchange_date else None,
         "segment_count": parse_row.segment_count if parse_row else 0,
-        "report": raw_json.get("report", ""),
-        "structured_data": raw_json.get("structured_data"),
+        "parsed_edi": raw_json.get("json_export") or raw_json.get("structured_data"),
         "validation_errors": [
             {"segment": e.segment, "error_code": e.error_code, "error_message": e.error_message,
              "severity": e.severity, "loop_id": e.loop_id, "suggestion": e.suggestion}
@@ -72,7 +71,7 @@ def _rule_based_analysis(ctx: dict) -> dict:
     error_count = ctx.get("error_count") or 0
     warning_count = ctx.get("warning_count") or 0
     bullets = [
-        f"Transaction type detected: {tx} — interchange envelope is structurally present.",
+        f"Transaction type detected: {tx} - interchange envelope is structurally present.",
         f"File contains {seg_count} loop(s) parsed from the EDI content.",
         f"Sender: {ctx.get('sender_id', 'N/A')} to Receiver: {ctx.get('receiver_id', 'N/A')}.",
     ]
@@ -174,13 +173,77 @@ async def apply_fix(
     flag_modified(parse_row, "raw_json")
     await db.flush()
 
+    # Recalculate remaining errors
+    remaining_errors = (await db.execute(select(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))).scalars().all()
     if fix_type == "AUTO":
-        file_row = (await db.execute(select(EDIFile).where(EDIFile.id == fid))).scalar_one_or_none()
-        if file_row:
-            file_row.is_valid = True
-            file_row.error_count = 0
-            flag_modified(file_row, "is_valid")
         await db.execute(delete(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))
+        remaining_count = 0
+    else:
+        fix_to_error_codes = {
+            "BHT05_TIME": ["BHT05", "TIME_FORMAT", "INVALID_TIME"],
+            "TAX_ID": ["TAX_ID", "EIN", "REF02", "INVALID_TAX"],
+            "CHARGE_TOTAL": ["CHARGE_TOTAL_CHECK", "AMOUNT_MISMATCH", "CLM02"],
+        }
+        codes_to_clear = fix_to_error_codes.get(fix_type, [])
+        remaining_count = len(remaining_errors)
+        if codes_to_clear:
+            for err in remaining_errors:
+                if any(code in (err.error_code or "") for code in codes_to_clear):
+                    await db.execute(delete(ValidationErrorDB).where(ValidationErrorDB.id == err.id))
+                    remaining_count -= 1
+
+    # Always update edi_files with current status
+    file_row_update = (await db.execute(select(EDIFile).where(EDIFile.id == fid))).scalar_one_or_none()
+    if file_row_update:
+        file_row_update.error_count = remaining_count
+        if remaining_count == 0:
+            file_row_update.is_valid = True
+            file_row_update.warning_count = 0
+        flag_modified(file_row_update, "error_count")
+        flag_modified(file_row_update, "is_valid")
 
     await db.commit()
-    return {"success": True, "updated_fields": updated_fields, "new_parse_result": raw_json}
+
+    # Return refreshed data so frontend can update without reload
+    refreshed_parse = (await db.execute(select(ParseResult).where(ParseResult.file_id == fid))).scalar_one_or_none()
+    refreshed_errors = (await db.execute(select(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))).scalars().all()
+    refreshed_file = (await db.execute(select(EDIFile).where(EDIFile.id == fid))).scalar_one_or_none()
+    return {
+        "success": True,
+        "updated_fields": updated_fields,
+        "new_parse_result": refreshed_parse.raw_json if refreshed_parse else raw_json,
+        "remaining_errors": [
+            {"id": str(e.id), "segment": e.segment, "error_code": e.error_code,
+             "error_message": e.error_message, "severity": e.severity, "suggestion": e.suggestion}
+            for e in refreshed_errors
+        ],
+        "file_status": {
+            "is_valid": refreshed_file.is_valid if refreshed_file else False,
+            "error_count": refreshed_file.error_count if refreshed_file else 0,
+            "warning_count": refreshed_file.warning_count if refreshed_file else 0,
+        },
+    }
+
+
+class GroqKeyRequest(BaseModel):
+    api_key: str
+
+
+@router.post("/settings/groq-key")
+async def update_groq_key(req: GroqKeyRequest):
+    import os
+    from pathlib import Path
+    env_path = Path("backend/.env")
+    if not env_path.exists():
+        env_path = Path(".env")
+    if env_path.exists():
+        content = env_path.read_text()
+        if "GROQ_API_KEY=" in content:
+            lines = content.splitlines()
+            lines = [f"GROQ_API_KEY={req.api_key}" if l.startswith("GROQ_API_KEY=") else l for l in lines]
+            env_path.write_text("\n".join(lines))
+        else:
+            with env_path.open("a") as f:
+                f.write(f"\nGROQ_API_KEY={req.api_key}")
+    os.environ["GROQ_API_KEY"] = req.api_key
+    return {"success": True}

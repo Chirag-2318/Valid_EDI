@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { ADMIN_PERMISSIONS, canAny, CLAIMS_ACCESS_PERMISSIONS } from '../auth/permissions';
@@ -10,13 +10,13 @@ export function SettingsPage() {
   const { permissions, logout, user } = useAuth();
   const canClaims = canAny(permissions, CLAIMS_ACCESS_PERMISSIONS);
   const isAdmin = canAny(permissions, ADMIN_PERMISSIONS);
+  const [showKeyOverlay, setShowKeyOverlay] = useState(false);
+  const [newKey, setNewKey] = useState('');
+
   useEffect(() => {
     const previous = document.body.className;
     document.body.className = bodyClassName;
-
-    return () => {
-      document.body.className = previous;
-    };
+    return () => { document.body.className = previous; };
   }, []);
 
   return (
@@ -25,51 +25,39 @@ export function SettingsPage() {
         <div className="flex items-center gap-8">
           <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-slate-50">EdiPro</span>
           <nav className="hidden md:flex gap-6">
-            <a
-              className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 font-sans tracking-tight text-sm font-medium transition-colors"
-              href="/dashboard_sleek"
-            >
-              Dashboard
-            </a>
+            <a className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 font-sans tracking-tight text-sm font-medium transition-colors" href="/dashboard_sleek">Dashboard</a>
             {canClaims ? (
-              <a
-                className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 font-sans tracking-tight text-sm font-medium transition-colors"
-                href="/837_claims_view"
-              >
-                Reports
-              </a>
+              <a className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 font-sans tracking-tight text-sm font-medium transition-colors" href="/837_claims_view">Reports</a>
             ) : null}
           </nav>
         </div>
         <div className="flex items-center gap-4">
           <div className="bg-surface-container-highest px-3 py-1.5 rounded-lg flex items-center gap-2">
             <span className="material-symbols-outlined text-outline text-sm">search</span>
-            <input className="bg-transparent border-none focus:ring-0 text-sm w-48 text-on-surface" placeholder="Search settings..." type="text" />
+            <input
+              className="bg-transparent border-none focus:ring-0 text-sm w-48 text-on-surface"
+              placeholder="Search settings..."
+              type="text"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.target.value.trim()) {
+                  localStorage.setItem('globalSearch', e.target.value.trim());
+                  window.location.href = '/master_parser_sleek';
+                }
+              }}
+            />
           </div>
           <a className="p-2 text-slate-500 hover:bg-slate-100/50 rounded-full transition-all" href="/notifications" aria-label="Open notifications">
             <span className="material-symbols-outlined">notifications</span>
           </a>
-          <a
-            className="p-2 text-blue-600 dark:text-blue-400 hover:bg-slate-100/50 rounded-full transition-all"
-            href="/settings"
-            aria-label="Open settings"
-          >
+          <a className="p-2 text-blue-600 dark:text-blue-400 hover:bg-slate-100/50 rounded-full transition-all" href="/settings" aria-label="Open settings">
             <span className="material-symbols-outlined">settings</span>
           </a>
-          <a className="w-8 h-8 rounded-full overflow-hidden border-2 border-primary/20" href="/user_profile" aria-label="Open user profile">
-            <img
-              alt="User Profile"
-              className="w-full h-full object-cover"
-              data-alt="close-up portrait of a professional male avatar with a minimalist clean background"
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuBxTlDu_54CZiSUYBInk-l2uNP22WfFO9hfxJDhJf9V97Vv-bVMt13cECZX9tiurQ4tg6QO-WfBCbLk4WJiRi7JM20REP1s8nWXkyvtNX3wIeS-DP1rmr6Ugix8FOM4U5_sMTNr-IQHJ9jgOnXvbihrXzwOfGpohIsm1n7WXFMT85IAGzK2sSFBkrRCqtkoL3sw4XqkGNVHuFJfFH5sH9WotL0qDOkwxrZGkSL9_oVp9V_PFGWmFTlGLz6WV2lJgFoEfgvlEOUqVh9w"
-            />
+          <a className="w-8 h-8 rounded-full overflow-hidden border-2 border-primary/20 bg-primary/10 flex items-center justify-center" href="/user_profile" aria-label="Open user profile">
+            <span className="material-symbols-outlined text-primary" style={{ fontSize: '20px' }}>person</span>
           </a>
           <button
             className="px-3 py-2 text-xs font-bold uppercase tracking-widest text-primary border border-primary/30 rounded-lg hover:bg-primary/10 transition-colors"
-            onClick={async () => {
-              await logout();
-              navigate('/login');
-            }}
+            onClick={async () => { await logout(); navigate('/login'); }}
             type="button"
           >
             Sign Out
@@ -99,10 +87,7 @@ export function SettingsPage() {
                 <span className="text-sm">Appearance</span>
               </button>
               {isAdmin ? (
-                <a
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 dark:text-slate-200 hover:bg-slate-200/30 dark:hover:bg-slate-800/30 rounded-lg font-medium transition-transform duration-200 hover:scale-[1.02]"
-                  href="/admin/users"
-                >
+                <a className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 dark:text-slate-200 hover:bg-slate-200/30 dark:hover:bg-slate-800/30 rounded-lg font-medium transition-transform duration-200 hover:scale-[1.02]" href="/admin/users">
                   <span className="material-symbols-outlined text-[20px]">group</span>
                   <span className="text-sm">User Management</span>
                 </a>
@@ -129,7 +114,7 @@ export function SettingsPage() {
             </div>
 
             <div className="grid grid-cols-12 gap-6">
-              <div className="col-span-12 md:col-span-8 space-y-6">
+              <div className="col-span-12 space-y-6">
                 <div className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10">
                   <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
                     <span className="material-symbols-outlined text-primary">security</span>
@@ -146,9 +131,7 @@ export function SettingsPage() {
                           value={user?.email || ''}
                           placeholder="No email on file"
                         />
-                        <button className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-all" type="button">
-                          Change
-                        </button>
+                        <button className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-all" type="button">Change</button>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4 pt-2">
@@ -179,132 +162,31 @@ export function SettingsPage() {
                     <span className="px-3 py-1 bg-tertiary/10 text-tertiary text-[10px] font-bold uppercase tracking-widest rounded-full">Active Connection</span>
                   </div>
                   <div className="space-y-4">
-                    <div className="p-4 bg-surface-container-low rounded-xl flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="p-2 bg-white rounded-lg shadow-sm">
-                          <span className="material-symbols-outlined text-outline">dns</span>
+                    <div className="p-4 bg-surface-container-low rounded-xl">
+                      <p className="text-[10px] font-bold uppercase text-outline mb-2">AI Assistance API Key</p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-bold text-on-surface">Groq</span>
+                          <span className="font-mono text-xs text-outline" id="groq-key-display">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span>
                         </div>
-                        <div>
-                          <p className="text-sm font-bold">SFTP Production Endpoint</p>
-                          <code className="text-xs text-tertiary">sftp.luminous-ledger.com:2222</code>
-                        </div>
-                      </div>
-                      <button className="text-primary text-sm font-bold hover:underline" type="button">
-                        Rotate Key
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 bg-surface-container-low rounded-xl">
-                        <p className="text-[10px] font-bold uppercase text-outline mb-1">API Key (Claims)</p>
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs">•••••••••••••492A</span>
-                          <span className="material-symbols-outlined text-sm cursor-pointer hover:text-primary">content_copy</span>
-                        </div>
-                      </div>
-                      <div className="p-4 bg-surface-container-low rounded-xl">
-                        <p className="text-[10px] font-bold uppercase text-outline mb-1">Last Sync</p>
-                        <p className="text-xs font-medium">Today, 04:22 PM EST</p>
+                        <button
+                          id="rotate-key-btn"
+                          onClick={() => setShowKeyOverlay(true)}
+                          className="text-primary text-sm font-bold hover:underline"
+                          type="button"
+                        >
+                          Rotate Key
+                        </button>
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-
-              <div className="col-span-12 md:col-span-4 space-y-6">
-                <div className="bg-white/60 glass-effect p-6 rounded-xl shadow-sm border border-outline-variant/10">
-                  <h3 className="text-sm font-bold text-outline uppercase tracking-widest mb-4">System Appearance</h3>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button className="flex flex-col items-center gap-2 p-3 bg-white border-2 border-primary rounded-xl shadow-sm" type="button">
-                      <span className="material-symbols-outlined text-primary">light_mode</span>
-                      <span className="text-[11px] font-bold">Light</span>
-                    </button>
-                    <button className="flex flex-col items-center gap-2 p-3 bg-slate-900 text-white rounded-xl hover:scale-105 transition-transform" type="button">
-                      <span className="material-symbols-outlined">dark_mode</span>
-                      <span className="text-[11px] font-bold">Dark</span>
-                    </button>
-                    <button className="flex flex-col items-center gap-2 p-3 bg-gradient-to-br from-slate-100 to-slate-400 rounded-xl hover:scale-105 transition-transform" type="button">
-                      <span className="material-symbols-outlined">settings_brightness</span>
-                      <span className="text-[11px] font-bold">Auto</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10">
-                  <h3 className="text-sm font-bold text-outline uppercase tracking-widest mb-4">Notifications</h3>
-                  <div className="space-y-5">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold">Validation Errors</p>
-                        <p className="text-[11px] text-outline">Instant alert on claim failure</p>
-                      </div>
-                      <div className="w-10 h-5 bg-primary rounded-full relative flex items-center px-1">
-                        <div className="w-3 h-3 bg-white rounded-full translate-x-5"></div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold">Batch Complete</p>
-                        <p className="text-[11px] text-outline">Email summary for 837/835</p>
-                      </div>
-                      <div className="w-10 h-5 bg-surface-container-highest rounded-full relative flex items-center px-1">
-                        <div className="w-3 h-3 bg-white rounded-full"></div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold">In-App Alerts</p>
-                        <p className="text-[11px] text-outline">Dashboard notifications</p>
-                      </div>
-                      <div className="w-10 h-5 bg-primary rounded-full relative flex items-center px-1">
-                        <div className="w-3 h-3 bg-white rounded-full translate-x-5"></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-tertiary text-white p-6 rounded-xl shadow-lg relative overflow-hidden">
-                  <div className="relative z-10">
-                    <h3 className="text-sm font-bold uppercase tracking-widest mb-1">Team Access</h3>
-                    <p className="text-2xl font-black mb-4">4 Members</p>
-                    <div className="flex -space-x-2 mb-6">
-                      <img
-                        alt="Team member"
-                        className="w-8 h-8 rounded-full border-2 border-tertiary"
-                        data-alt="professional avatar of a woman with glasses and confident expression"
-                        src="https://lh3.googleusercontent.com/aida-public/AB6AXuAOREoZW6nsQlOB15ifnK2oILbixEtFVRLX2lc44e9vA_d1tNNzZ8eBurqaOqBgE1k2SCIN45EY3QHPsWlsEdbIXtON7dVwlAlQN3LE65ScXCWZM3GmXTQCnVby0ER02MnDB75rgMLrxRv95R0e-vpXx8nhmdq1AnyUoZvAWGoXK75IN4c3v8F9lR73UAUMlVK1SHAs3omyfBdpVhwVl1OSNv3ccXXW8JIPoKFgRn8IB6e_rOxmWBFaLLrxELn7aQIigcULe_7NPGr4"
-                      />
-                      <img
-                        alt="Team member"
-                        className="w-8 h-8 rounded-full border-2 border-tertiary"
-                        data-alt="professional avatar of a man with a beard and friendly smile"
-                        src="https://lh3.googleusercontent.com/aida-public/AB6AXuDXpHlTMuhSQcl0PevGwo-ylSOOpZ2ROD3xLNncPY5lgRAjYRQXhzwmrF4zyg_QEwqy6vjMJtpf42ZJ-pQciCXKEHTLh6dRGipiydolvsZWVM2skVJu9JGd5yc4akPd5K3qXgNaC68lGQthhNaJWBYZF9GS6-TdMHVbQ_OXCpV6rSZjxW8kNRxYNCoxHz_JMDP0q47KcxhHf3KeZcAiO-sZKcJrXt8HoIv_65sACU3WPzQIlFLChG41RoS-h68cyPjUVcTXpQZPcKYo"
-                      />
-                      <img
-                        alt="Team member"
-                        className="w-8 h-8 rounded-full border-2 border-tertiary"
-                        data-alt="professional avatar of a person with short hair and neutral background"
-                        src="https://lh3.googleusercontent.com/aida-public/AB6AXuC_HvdnrCnHdRQuctuNoPnzmFG0ov5R1p64iL3kKmvYnrT8N7dfpVYtxXs2P9WPwE2xyTkKhfHDDg_V7Fvv_Ugn1BF8MkKey6JtfbxHWb90nT6jOxPKYCInK4Po452LcwuNQKgV5jrFM0dZvohU_v2TlGVjgIbW-O0mPByj33HTLsh54p16A21CIdSK6nVP5_G1v3v_DIHlOYeJIsuSBQQWsvD_soRpKVr04OGCu96kT1yeEuRni3DjC_gPZHnYx2QHNcRYt8Z8mxZX"
-                      />
-                      <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-bold">+1</div>
-                    </div>
-                    {isAdmin ? (
-                      <a className="w-full bg-white text-tertiary py-2 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-opacity-90 transition-all text-center" href="/admin/users">
-                        Manage Permissions
-                      </a>
-                    ) : null}
-                  </div>
-                  <div className="absolute -right-4 -bottom-4 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
                 </div>
               </div>
             </div>
 
             <div className="mt-12 pt-8 border-t border-outline-variant/10 flex justify-end gap-4">
-              <button className="px-6 py-2.5 text-sm font-bold text-outline hover:text-on-surface transition-colors" type="button">
-                Discard Changes
-              </button>
-              <button className="px-8 py-2.5 bg-primary text-white text-sm font-bold rounded-xl shadow-md shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all" type="button">
-                Save Global Settings
-              </button>
+              <button className="px-6 py-2.5 text-sm font-bold text-outline hover:text-on-surface transition-colors" type="button">Discard Changes</button>
+              <button className="px-8 py-2.5 bg-primary text-white text-sm font-bold rounded-xl shadow-md shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all" type="button">Save Global Settings</button>
             </div>
           </div>
         </section>
@@ -319,7 +201,62 @@ export function SettingsPage() {
           <p className="text-xs text-outline">EDI Gateway re-validated successfully.</p>
         </div>
       </div>
+
+      {showKeyOverlay && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4">
+            <h3 className="text-lg font-bold text-on-surface mb-2">Update AI Assistance API Key</h3>
+            <p className="text-sm text-slate-500 mb-6">Enter your new Groq API key. It will be saved and used immediately.</p>
+            <input
+              autoFocus
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter' && newKey.trim()) {
+                  try {
+                    await fetch('/api/settings/groq-key', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ api_key: newKey.trim() })
+                    });
+                    const display = document.getElementById('groq-key-display');
+                    if (display) display.textContent = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' + newKey.trim().slice(-4);
+                  } catch (err) { console.error(err); }
+                  setShowKeyOverlay(false);
+                  setNewKey('');
+                }
+                if (e.key === 'Escape') { setShowKeyOverlay(false); setNewKey(''); }
+              }}
+              className="w-full border border-outline-variant/30 rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-primary/30 focus:outline-none mb-4"
+              placeholder="gsk_••••••••••••••••••••••••••••••••••"
+              type="password"
+            />
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => { setShowKeyOverlay(false); setNewKey(''); }} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-on-surface" type="button">Cancel</button>
+              <button
+                onClick={async () => {
+                  if (!newKey.trim()) return;
+                  try {
+                    await fetch('/api/settings/groq-key', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ api_key: newKey.trim() })
+                    });
+                    const display = document.getElementById('groq-key-display');
+                    if (display) display.textContent = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' + newKey.trim().slice(-4);
+                  } catch (err) { console.error(err); }
+                  setShowKeyOverlay(false);
+                  setNewKey('');
+                }}
+                className="px-6 py-2 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary/90"
+                type="button"
+              >
+                Save Key
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
-
