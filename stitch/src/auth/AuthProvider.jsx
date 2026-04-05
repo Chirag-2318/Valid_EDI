@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { onIdTokenChanged, signInWithEmailAndPassword, signInWithPopup, signOut } from 'firebase/auth';
+import { onIdTokenChanged, signInWithEmailAndPassword, signInWithRedirect, getRedirectResult, signOut } from 'firebase/auth';
 import { authFetch } from './api';
 import { auth, firebaseEnabled, googleProvider } from './firebase';
 import { permissionsForRole } from './permissions';
@@ -19,6 +19,9 @@ export function AuthProvider({ children }) {
       setState((prev) => ({ ...prev, loading: false }));
       return undefined;
     }
+
+    // Handle redirect result after Google sign-in redirect flow
+    getRedirectResult(auth).catch(() => {});
 
     const unsubscribe = onIdTokenChanged(auth, async (user) => {
       if (!user) {
@@ -65,9 +68,10 @@ export function AuthProvider({ children }) {
     if (!firebaseEnabled || !auth || !googleProvider) {
       throw new Error('Firebase is not configured.');
     }
-    const credential = await signInWithPopup(auth, googleProvider);
-    await credential.user.getIdTokenResult(true);
-    return credential.user;
+    // Use redirect instead of popup — GitHub Pages enforces COOP: same-origin
+    // which blocks popup window communication.
+    await signInWithRedirect(auth, googleProvider);
+    // Page will reload after redirect; auth state is picked up by onIdTokenChanged
   };
 
   const logout = async () => {

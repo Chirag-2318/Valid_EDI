@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
 
 from app.auth.firebase_auth import (
     ANY_VIEW_PERMISSIONS,
@@ -44,6 +46,18 @@ from app.routers import admin, auth, upload, files, copilot
 
 app = FastAPI(title="EdiPro Healthcare EDI Parser API", version="1.0.0")
 
+
+# Allow Firebase Auth popups: GitHub Pages sets COOP same-origin by default which
+# blocks window.closed / window.close calls used by signInWithPopup.
+class COOPMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        response = await call_next(request)
+        response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
+        response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"
+        return response
+
+
+app.add_middleware(COOPMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,11 +77,12 @@ if STITCH_DIR.exists():
     app.mount("/stitch", StaticFiles(directory=STITCH_DIR, html=True), name="stitch")
 
 
+FRONTEND_URL = "https://edipro.me"
+
+
 @app.get("/")
 def frontend_home() -> RedirectResponse:
-    if STITCH_DIR.exists():
-        return RedirectResponse(url="/stitch/dashboard_sleek/code.html", status_code=307)
-    return RedirectResponse(url="/api/health", status_code=307)
+    return RedirectResponse(url=FRONTEND_URL, status_code=307)
 
 
 @app.get("/api/health")
@@ -87,30 +102,8 @@ def parse_raw(request: ParseRequest, user: UserContext = Depends(get_current_use
     }
 
 
-@app.post("/api/upload", response_model=UploadResponse)
-async def upload_file(
-    file: UploadFile = File(...),
-    user: UserContext = Depends(get_current_user),
-) -> UploadResponse:
-    content = (await file.read()).decode("utf-8", errors="ignore")
-    parsed = parse_x12(content)
-    ensure_upload_for_transaction(user, parsed.transaction_type)
-    validation = validate(parsed)
-
-    report = ParsedFileReport(
-        filename=file.filename or "uploaded.edi",
-        parse_result=parsed,
-        validation_result=validation,
-    )
-
-    remittance_summary = build_835_summary(parsed.segments) if parsed.transaction_type == "835" else []
-    enrollment_summary = build_834_summary(parsed.segments) if parsed.transaction_type == "834" else []
-
-    return UploadResponse(
-        report=report,
-        remittance_summary=remittance_summary,
-        enrollment_summary=enrollment_summary,
-    )
+# NOTE: /api/upload is handled by upload.router (routers/upload.py) which
+# persists files to S3 and PostgreSQL. Do not add a duplicate route here.
 
 
 @app.post("/api/batch", response_model=BatchResult)
