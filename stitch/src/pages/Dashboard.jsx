@@ -51,7 +51,7 @@ export function DashboardPage() {
     let totalProcessed = 0;
     let totalValid = 0;
 
-    if (!nav || !overlay || !toggle || !closeButton) {
+    if (!nav || !overlay || !toggle) {
       return undefined;
     }
 
@@ -72,7 +72,7 @@ export function DashboardPage() {
     const handleOverlay = () => closeNav();
 
     toggle.addEventListener('click', handleToggle);
-    closeButton.addEventListener('click', handleClose);
+    if (closeButton) closeButton.addEventListener('click', handleClose);
     overlay.addEventListener('click', handleOverlay);
 
     const handleNavLinkClick = () => {
@@ -339,7 +339,7 @@ export function DashboardPage() {
 
     return () => {
       toggle.removeEventListener('click', handleToggle);
-      closeButton.removeEventListener('click', handleClose);
+      if (closeButton) closeButton.removeEventListener('click', handleClose);
       overlay.removeEventListener('click', handleOverlay);
       window.removeEventListener('resize', handleResize);
       navLinks.forEach((link) => {
