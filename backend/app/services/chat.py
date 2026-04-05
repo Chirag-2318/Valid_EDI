@@ -150,34 +150,39 @@ def _rule_based_fallback(question: str, context: dict) -> str:
         f"**Status:** {status}\n\n"
         f"Ask about members, procedure codes, charges, errors, or provider details."
     )
-async def ask_llm_fix_edi(raw_edi: str, errors: list) -> str:
-    """Send raw EDI + ALL validation errors to Groq. Returns fully corrected EDI or empty string."""
+
+async def ask_llm_fix_edi(raw_edi: str, errors: list) -> dict:
+    """Send raw EDI + validation errors to Groq. Returns structured changes dict.
+    """
     token = os.getenv("GROQ_API_KEY", "")
     if not token:
-        return ""
+        return {"changes": [], "corrected_edi": ""}
     try:
         from groq import Groq
         import asyncio
         client = Groq(api_key=token)
         system_prompt = (
             "You are an expert X12 HIPAA 5010 EDI editor.\n"
-            "You will receive a raw EDI file and a list of ALL validation errors found in it.\n"
-            "Fix EVERY error in the list and return the COMPLETE corrected EDI file.\n\n"
-            "STRICT RULES:\n"
-            "1. Return ONLY the raw EDI text. Zero explanation, zero markdown, zero code fences.\n"
-            "2. Preserve segment terminator (~), element separator (*), sub-element separator (:).\n"
-            "3. For missing required segments (NM1*41, NM1*40, NM1*85, NM1*IL, NM1*PR): "
-            "add them in the correct loop position with realistic placeholder values.\n"
-            "4. For invalid values (e.g. diagnosis code with decimal like J20.9): remove the decimal (J209).\n"
-            "5. For invalid NPI numbers: replace with a valid 10-digit NPI (e.g. 1234567893).\n"
-            "6. For amount format errors: ensure amounts are numeric with up to 2 decimal places.\n"
-            "7. Do NOT change anything not listed as an error.\n"
-            "8. Output must start with ISA* and end with IEA*.\n"
-            "9. Every segment must end with ~.\n"
-            "Output the corrected EDI file now:"
+            "Given a raw EDI file and validation errors, return a strict JSON object with segment-level fixes.\n\n"
+            "OUTPUT FORMAT (JSON only):\n"
+            '{"changes": [\n'
+            '  {"original_line": "EXACT segment text to replace", "corrected_line": "fixed segment text", '
+            '"error_code": "ERROR_CODE", "explanation": "brief reason"}\n'
+            "]}\n\n"
+            "CRITICAL RULES:\n"
+            "1. ONLY valid JSON, nothing else.\n"
+            "2. 'original_line' MUST perfectly match a substring in the raw EDI.\n"
+            "3. You must NOT add new unrequested segments, or drop required segments.\n"
+            "4. NEVER include line breaks (\\n) in 'corrected_line' unless they were exactly in 'original_line'.\n"
+            "5. BOTH 'original_line' and 'corrected_line' MUST END WITH THE EXACT SAME SEGMENT TERMINATOR (usually ~).\n"
+            "6. For invalid NPI: replace with valid 10-digit NPI (e.g. 1234567893).\n"
+            "7. For invalid codes (e.g. J20.9): remove the decimal (J209).\n"
+            "8. For amount format errors: ensure plain numbers (e.g. 150.00).\n"
+            "9. For charge total mismatches (SV1 vs CLM): ensure the SV1 line item charge (SV102) correctly matches the CLM total. NEVER add extra asterisks inside SV1 (e.g., use SV1*HC:99213*150.00*UN..., NOT SV1*HC:99213**150.00).\n"
+            "10. For DIAGNOSIS_CODE_FORMAT: if the code already has no decimals and looks valid (e.g., J069), DO NOT modify it. The validator might be overly strict.\n"
         )
         errors_text = json.dumps(errors, indent=2)
-        user_prompt = f"VALIDATION ERRORS TO FIX:\n{errors_text}\n\nRAW EDI FILE:\n{raw_edi}"
+        user_prompt = f"VALIDATION ERRORS:\n{errors_text}\n\nRAW EDI FILE:\n{raw_edi}"
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(None, lambda: client.chat.completions.create(
             model=GROQ_MODEL,
@@ -186,17 +191,58 @@ async def ask_llm_fix_edi(raw_edi: str, errors: list) -> str:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
-            max_tokens=8192,
+            max_tokens=4096,
         ))
         result = response.choices[0].message.content.strip()
+        # Parse JSON
         if "```" in result:
             lines = result.splitlines()
             result = "\n".join(l for l in lines if not l.startswith("```")).strip()
-        if "ISA*" not in result:
-            return ""
-        isa_pos = result.find("ISA*")
-        if isa_pos > 0:
-            result = result[isa_pos:]
-        return result
+        start = result.find("{")
+        end = result.rfind("}") + 1
+        if start >= 0 and end > start:
+            parsed = json.loads(result[start:end])
+            changes = parsed.get("changes", [])
+            
+            validated_changes = []
+            corrected_edi = raw_edi
+            
+            for change in changes:
+                orig = change.get("original_line", "").strip()
+                corrected = change.get("corrected_line", "").strip()
+                if not orig or not corrected or orig == corrected:
+                    continue
+                
+                # Check exact match. If it perfectly matches without whitespace manipulation:
+                if orig in corrected_edi:
+                    # Enforce terminator retention:
+                    if orig.endswith("~") and not corrected.endswith("~"):
+                        corrected += "~"
+                    corrected_edi = corrected_edi.replace(orig, corrected, 1)
+                    validated_changes.append({
+                        "original_line": orig,
+                        "corrected_line": corrected,
+                        "error_code": change.get("error_code", ""),
+                        "explanation": change.get("explanation", ""),
+                    })
+                else:
+                    # Fallback: maybe LLM stripped trailing spaces/newlines
+                    # Try finding by removing standard terminators to find the core segment
+                    core_orig = orig.strip("~\r\n ")
+                    core_corr = corrected.strip("~\r\n ")
+                    if core_orig and core_corr and core_orig in corrected_edi:
+                        parts = corrected_edi.split(core_orig, 1)
+                        if len(parts) == 2:
+                            corrected_edi = parts[0] + core_corr + parts[1]
+                            validated_changes.append({
+                                "original_line": core_orig,
+                                "corrected_line": core_corr,
+                                "error_code": change.get("error_code", ""),
+                                "explanation": change.get("explanation", ""),
+                            })
+
+            return {"changes": validated_changes, "corrected_edi": corrected_edi}
+        return {"changes": [], "corrected_edi": ""}
     except Exception:
-        return ""
+        return {"changes": [], "corrected_edi": ""}
+

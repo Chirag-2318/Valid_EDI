@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { authFetch } from '../auth/api';
 import { useAuth } from '../auth/AuthProvider';
@@ -174,6 +174,30 @@ const DOC_DETAILS = {
 };
 
 const PANE_MIN_SIZES = { raw: 260, tree: 320, errors: 280 };
+const SUPPRESSED_ERROR_CODES = new Set(['DIAGNOSIS_CODE_FORMAT', 'CHARGE_TOTAL_CHECK', 'AMOUNT_FORMAT']);
+
+const dismissedStorageKey = (fileId) => `edi:dismissed-errors:${fileId}`;
+
+const readDismissedErrorKeys = (fileId) => {
+  if (!fileId) return new Set();
+  try {
+    const raw = localStorage.getItem(dismissedStorageKey(fileId));
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch (e) {
+    return new Set();
+  }
+};
+
+const persistDismissedErrorKeys = (fileId, keys) => {
+  if (!fileId) return;
+  try {
+    localStorage.setItem(dismissedStorageKey(fileId), JSON.stringify([...keys]));
+  } catch (e) {
+    // ignore storage failures
+  }
+};
 
 const formatEdiContent = (text = '') => {
   if (!text) return '';
@@ -184,7 +208,8 @@ const formatEdiContent = (text = '') => {
   }
   const segments = normalized
     .split(segmentSeparator)
-    .map((seg) => seg.trim())
+    .map((seg) => seg.replace(/^\s+/, ''))
+    .map((seg) => (seg.startsWith('ISA') ? seg : seg.trim()))
     .filter(Boolean);
   return segments.map((seg) => `${seg}${segmentSeparator}`).join('\n');
 };
@@ -196,27 +221,53 @@ const getElementLabel = (segmentId, index) => {
   return labels[index] || `Element ${index + 1}`;
 };
 
-const normalizeDbIssues = (issues = []) => issues.map((issue) => ({
-  code: issue.error_code || 'Validation Error',
-  message: issue.error_message || '',
-  severity: String(issue.severity || 'error').toLowerCase(),
-  loop: issue.loop_id || '',
-  segmentId: issue.segment || '',
-  elementPosition: issue.element_position || null,
-  currentValue: issue.current_value || '',
-  suggestedValue: issue.suggestion || ''
-}));
+const isLibraryCrashError = (msg) => typeof msg === 'string' && msg.includes('raised an unexpected error');
 
-const normalizeParseIssues = (issues = []) => issues.map((issue) => ({
-  code: issue.code || 'Validation Error',
-  message: issue.message || '',
-  severity: String(issue.severity || 'error').toLowerCase(),
-  loop: issue.loop_location || '',
-  segmentId: issue.segment_id || '',
-  elementPosition: issue.element_position || null,
-  currentValue: issue.current_value || '',
-  suggestedValue: issue.suggested_value || ''
-}));
+const buildIssueKey = (issue = {}) => {
+  const rawId = issue.id || issue.error_id;
+  if (rawId) return `id:${rawId}`;
+  const code = issue.code || issue.error_code || '';
+  const message = issue.message || issue.error_message || '';
+  const segment = issue.segmentId || issue.segment || '';
+  const element = issue.elementPosition || issue.element_position || '';
+  const loop = issue.loop || issue.loop_id || '';
+  const current = issue.currentValue || issue.current_value || '';
+  return [code, segment, element, loop, message, current].join('|');
+};
+
+const normalizeDbIssues = (issues = []) => issues
+  .filter((issue) => !isLibraryCrashError(issue.error_message))
+  .map((issue) => {
+    const normalized = {
+      id: issue.id,
+      code: issue.error_code || 'Validation Error',
+      message: issue.error_message || '',
+      severity: String(issue.severity || 'error').toLowerCase(),
+      loop: issue.loop_id || '',
+      segmentId: issue.segment || '',
+      elementPosition: issue.element_position || null,
+      currentValue: issue.current_value || '',
+      suggestedValue: issue.suggestion || ''
+    };
+    return { ...normalized, key: buildIssueKey(normalized) };
+  });
+
+const normalizeParseIssues = (issues = []) => issues
+  .filter((issue) => !isLibraryCrashError(issue.message))
+  .map((issue) => {
+    const normalized = {
+      id: issue.id,
+      code: issue.code || 'Validation Error',
+      message: issue.message || '',
+      severity: String(issue.severity || 'error').toLowerCase(),
+      loop: issue.loop_location || '',
+      segmentId: issue.segment_id || '',
+      elementPosition: issue.element_position || null,
+      currentValue: issue.current_value || '',
+      suggestedValue: issue.suggested_value || ''
+    };
+    return { ...normalized, key: buildIssueKey(normalized) };
+  });
 
 const buildOverviewFromParse = (parseResult, reportText = '') => {
   if (reportText && reportText.trim()) return reportText;
@@ -423,9 +474,18 @@ export function MasterParserPage() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [fixLoading, setFixLoading] = useState(false);
-  const [llmFixLoading, setLlmFixLoading] = useState({});
+  const [fixAllLoading, setFixAllLoading] = useState(false);
   const [fixedErrorIds, setFixedErrorIds] = useState(new Set());
   const [correctedEdi, setCorrectedEdi] = useState(null);
+  const [changedLineIndices, setChangedLineIndices] = useState(new Set());
+  const [appliedChanges, setAppliedChanges] = useState([]);
+  const [dismissedErrorIds, setDismissedErrorIds] = useState(new Set());
+  const [showSuppressedErrors, setShowSuppressedErrors] = useState(false);
+  const [swipingError, setSwipingError] = useState(null);
+  const [swipeOffsets, setSwipeOffsets] = useState({});
+  const swipeStartRef = useRef(null);
+  const longPressTimerRef = useRef(null);
+  const isLongPressRef = useRef(false);
   const [currentFileId, setCurrentFileId] = useState(null);
   const [fileName, setFileName] = useState('Loading...');
   const [rawContent, setRawContent] = useState('');
@@ -444,6 +504,37 @@ export function MasterParserPage() {
   const [dragState, setDragState] = useState(null);
   const paneContainerRef = useRef(null);
   const [hasSized, setHasSized] = useState(false);
+
+  const refreshValidationIssues = useCallback(async (fileId, options = {}) => {
+    if (!fileId) return;
+    const { clearDismissed = false, clearFixed = false, clearSwipe = false, hydrateDismissed = false } = options;
+    try {
+      const errorsRes = await authFetch('/api/files/' + fileId + '/errors').then((r) => r.json());
+      const normalizedIssues = Array.isArray(errorsRes) ? normalizeDbIssues(errorsRes) : [];
+      const activeKeys = new Set(normalizedIssues.map((issue) => issue.key));
+      setValidationIssues(normalizedIssues);
+      setDismissedErrorIds((prev) => {
+        if (clearDismissed) return new Set();
+        const base = hydrateDismissed ? readDismissedErrorKeys(fileId) : prev;
+        const next = new Set([...base].filter((key) => activeKeys.has(key)));
+        persistDismissedErrorKeys(fileId, next);
+        return next;
+      });
+    } catch (err) {
+      setValidationIssues([]);
+    } finally {
+      if (clearFixed) setFixedErrorIds(new Set());
+      if (clearSwipe) {
+        setSwipeOffsets({});
+        setSwipingError(null);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!currentFileId) return;
+    persistDismissedErrorKeys(currentFileId, dismissedErrorIds);
+  }, [currentFileId, dismissedErrorIds]);
 
   async function triggerCopilotAnalysis(fileId) {
     if (!fileId) return;
@@ -517,14 +608,10 @@ export function MasterParserPage() {
     }
   }
 
-  async function fixErrorWithLLM(error, errorIndex) {
-    if (!currentFileId) return;
-    // Mark ALL errors as loading
-    const loadingState = {};
-    validationIssues.forEach((_, i) => { loadingState[i] = true; });
-    setLlmFixLoading(loadingState);
+  async function fixAllErrors() {
+    if (!currentFileId || !validationIssues.length) return;
+    setFixAllLoading(true);
     try {
-      // Send ALL current errors to backend for a single comprehensive fix
       const allErrors = validationIssues.map((issue) => ({
         code: issue.code || issue.error_code,
         message: issue.message || issue.error_message,
@@ -543,26 +630,82 @@ export function MasterParserPage() {
         alert(data.detail || 'AI fix failed. Make sure your Groq API key is set in Settings.');
         return;
       }
-      // Mark all current errors as fixed in UI
-      const allFixed = new Set(validationIssues.map((_, i) => i));
-      setFixedErrorIds(allFixed);
-      // Update raw EDI panel immediately
+      const remaining = data.remaining_errors || [];
+      const remainingKeys = new Set(remaining.map((issue) => buildIssueKey(issue)));
+
+      const actuallyFixed = new Set();
+      validationIssues.forEach((issue) => {
+        if (!remainingKeys.has(issue.key)) {
+          actuallyFixed.add(issue.key);
+        }
+      });
+      // Only mark errors as fixed locally if they actually got resolved
+      setFixedErrorIds(actuallyFixed);
+
+      const fixedCount = actuallyFixed.size;
+      const unresolvedCount = remaining.length;
+      
+      // Store applied changes for display
+      setAppliedChanges(data.changes || []);
+      // Update raw EDI with formatted corrected content and compute highlights
       if (data.corrected_edi) {
+        // Ensure both old and new are identically formatted before comparing
+        const formattedOld = typeof formatEdiContent === 'function' ? formatEdiContent(rawContent) : rawContent;
+        const formattedNew = typeof formatEdiContent === 'function' ? formatEdiContent(data.corrected_edi) : data.corrected_edi;
+        const originalLines = formattedOld.split('\n');
+        const newLines = formattedNew.split('\n');
+        
+        const changed = new Set();
+        const changesFromServer = data.changes || [];
+        
+        newLines.forEach((line, i) => {
+          if (i >= originalLines.length || line !== originalLines[i]) {
+            changed.add(i);
+          }
+        });
+        
+        // Try mapping the tooltips by checking if the 'corrected_line' substring is somewhat in the new line
+        const mappedExplanations = {};
+        changesFromServer.forEach(c => {
+           const coreCorr = (c.corrected_line || '').trim().replace(/~$/, '');
+           if (!coreCorr) return;
+           const matchIdx = newLines.findIndex(l => l.includes(coreCorr));
+           if (matchIdx !== -1) {
+               mappedExplanations[matchIdx] = c;
+           }
+        });
+
+        setChangedLineIndices(changed);
+        // Overwrite applied changes with the map so it's easy to render
+        setAppliedChanges(mappedExplanations);
+
         setCorrectedEdi(data.corrected_edi);
-        setRawContent(data.corrected_edi);
+        setRawContent(formattedNew);
         setRawDirty(false);
+        // Re-parse to update Parsed Tree and overview
+        try {
+          await parseRawContent(formattedNew, '', { setIssues: false, setOverview: true });
+        } catch (e) { /* skip parse error */ }
       }
-      // After showing green state, replace with fresh error list from server
+      
+      // After showing green state, update error list from server
       setTimeout(() => {
-        const remaining = data.remaining_errors || [];
         setValidationIssues(normalizeDbIssues(remaining));
         setFixedErrorIds(new Set());
+        void refreshValidationIssues(currentFileId, { clearSwipe: true });
         triggerCopilotAnalysis(currentFileId);
-      }, 1500);
+
+        // Notify user if some errors couldn't be fixed automatically
+        if (unresolvedCount > 0 && fixedCount > 0) {
+          alert(`AI fixed ${fixedCount} error(s), but ${unresolvedCount} error(s) could not be resolved automatically and may require manual attention or are false-positives.`);
+        } else if (fixedCount === 0) {
+          alert('AI could not resolve any of the current errors. They might be false-positives by the validator or require manual correction.');
+        }
+      }, 2000);
     } catch (e) {
       alert('Fix request failed: ' + e.message);
     } finally {
-      setLlmFixLoading({});
+      setFixAllLoading(false);
     }
   }
 
@@ -692,10 +835,7 @@ export function MasterParserPage() {
       setRawDirty(false);
       setRawSaveStatus(`Applied ${updates} fix${updates === 1 ? '' : 'es'}`);
       // Reload errors from DB after fix
-      try {
-        const errorsRes = await authFetch('/api/files/' + currentFileId + '/errors').then((r) => r.json());
-        setValidationIssues(Array.isArray(errorsRes) ? normalizeDbIssues(errorsRes) : []);
-      } catch (e) { /* skip */ }
+      await refreshValidationIssues(currentFileId, { clearSwipe: true });
     } catch (err) {
       setRawSaveStatus(err?.message || 'Fix failed');
     } finally {
@@ -768,6 +908,10 @@ export function MasterParserPage() {
           setRawContent('');
           setOverviewText('');
           setValidationIssues([]);
+          setFixedErrorIds(new Set());
+          setDismissedErrorIds(new Set());
+          setSwipeOffsets({});
+          setSwipingError(null);
           setParseTree(null);
           setParseSegments([]);
           setParseDelimiters(null);
@@ -783,6 +927,9 @@ export function MasterParserPage() {
         setOverviewText(buildOverviewFromParse(null, reportText));
         setCurrentFileId(id);
         setFixedErrorIds(new Set());
+        setDismissedErrorIds(readDismissedErrorKeys(id));
+        setSwipeOffsets({});
+        setSwipingError(null);
         setCorrectedEdi(null);
         triggerCopilotAnalysis(id);
 
@@ -821,22 +968,13 @@ export function MasterParserPage() {
           setRawContent(formatted);
           setRawDirty(false);
           try {
-            await parseRawContent(formatted, reportText, { setIssues: false, setOverview: false });
+            await parseRawContent(rawText, reportText, { setIssues: false, setOverview: false });
           } catch (err) { /* skip */ }
         } else {
           setRawContent('Raw EDI content unavailable. Please check the file source.');
         }
         // Load errors from DB as source of truth
-        try {
-          const errorsRes = await authFetch('/api/files/' + id + '/errors').then((r) => r.json());
-          if (Array.isArray(errorsRes) && errorsRes.length > 0) {
-            setValidationIssues(normalizeDbIssues(errorsRes));
-          } else {
-            setValidationIssues([]);
-          }
-        } catch (err) {
-          setValidationIssues([]);
-        }
+        await refreshValidationIssues(id, { hydrateDismissed: true });
       } catch (err) {
         console.error('Failed to load EDI file data:', err);
         setRawContent('Failed to load file data. Please check the server connection.');
@@ -927,14 +1065,25 @@ export function MasterParserPage() {
     setDragState({ pane, startX: event.clientX, startSizes: { ...paneSizes } });
   };
 
-  const errorStats = validationIssues.reduce((acc, issue) => {
-    if (issue.severity === 'warning') acc.warning += 1;
-    else acc.error += 1;
+  const nonWarningIssues = validationIssues.filter((issue) => issue.severity !== 'warning');
+  const suppressedIssues = nonWarningIssues.filter((issue) => SUPPRESSED_ERROR_CODES.has(issue.code));
+  const visibleIssues = nonWarningIssues.filter((issue) => showSuppressedErrors || !SUPPRESSED_ERROR_CODES.has(issue.code));
+  const visibleIssuesAfterDismiss = visibleIssues.filter((issue) => !dismissedErrorIds.has(issue.key));
+
+  const errorStats = visibleIssues.reduce((acc, issue) => {
+    if (dismissedErrorIds.has(issue.key)) return acc;
+    acc.error += 1;
     return acc;
   }, { error: 0, warning: 0 });
 
+  const activeSwipeOffset = swipingError ? (swipeOffsets[swipingError] || 0) : 0;
+  const isTrashArmed = swipingError !== null;
+  const isTrashActive = isTrashArmed && activeSwipeOffset > 120;
+
   const docItems = buildDocDetails(transactionType, parseSegments);
-  const suggestionItems = validationIssues.filter((issue) => issue.suggestedValue).slice(0, 4);
+  const suggestionItems = visibleIssues
+    .filter((issue) => issue.suggestedValue && !dismissedErrorIds.has(issue.key))
+    .slice(0, 4);
   const overview = buildOverviewSections(overviewText || '');
 
   const togglePane = (pane) => {
@@ -1114,19 +1263,44 @@ export function MasterParserPage() {
               </div>
             </div>
             <div className="flex-1 p-4 overflow-auto custom-scrollbar bg-[#fdfdfe]">
-              <textarea
-                value={rawContent}
-                onChange={(event) => {
-                  setRawContent(event.target.value);
-                  setRawDirty(true);
-                  setRawSaveStatus('');
-                }}
-                placeholder={rawLoading ? 'Loading file data...' : 'Paste or edit raw EDI here.'}
-                spellCheck={false}
-                wrap="soft"
-                className="raw-editor custom-scrollbar"
-                disabled={rawLoading}
-              />
+              {changedLineIndices.size > 0 ? (
+                <div className="raw-editor custom-scrollbar" style={{ cursor: 'text' }}>
+                  {rawContent.split('\n').map((line, idx) => (
+                    <div
+                      key={idx}
+                      className={changedLineIndices.has(idx)
+                        ? 'bg-red-50 text-red-700 border-l-2 border-red-500 pl-2 -ml-1 rounded-r transition-colors'
+                        : ''}
+                      title={changedLineIndices.has(idx)
+                        ? (appliedChanges[idx]?.explanation || 'Modified by AI fix')
+                        : undefined}
+                    >
+                      {line || '\u00A0'}
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => { setChangedLineIndices(new Set()); setAppliedChanges([]); }}
+                    className="mt-3 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[11px] font-semibold transition-colors"
+                    type="button"
+                  >
+                    Dismiss highlights &amp; edit
+                  </button>
+                </div>
+              ) : (
+                <textarea
+                  value={rawContent}
+                  onChange={(event) => {
+                    setRawContent(event.target.value);
+                    setRawDirty(true);
+                    setRawSaveStatus('');
+                  }}
+                  placeholder={rawLoading ? 'Loading file data...' : 'Paste or edit raw EDI here.'}
+                  spellCheck={false}
+                  wrap="soft"
+                  className="raw-editor custom-scrollbar"
+                  disabled={rawLoading}
+                />
+              )}
             </div>
             <div className="px-4 py-2 border-t border-slate-200/30 text-[10px] text-outline flex flex-wrap gap-3">
               <span>Segments: {parseSegments.length || '—'}</span>
@@ -1168,74 +1342,179 @@ export function MasterParserPage() {
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-error">report</span>
                 <h3 className="text-sm font-bold tracking-tight">Errors</h3>
-                <span className="text-[10px] text-outline">{errorStats.error} errors · {errorStats.warning} warnings</span>
+                <span className="text-[10px] text-outline">{errorStats.error} errors</span>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <span className="px-2 py-0.5 bg-error-container text-on-error-container text-[10px] font-bold rounded-full">CRITICAL {errorStats.error}</span>
-                <span className="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full">WARNING {errorStats.warning}</span>
+                {suppressedIssues.length > 0 ? (
+                  <button
+                    onClick={() => setShowSuppressedErrors((prev) => !prev)}
+                    className="px-2 py-0.5 text-[10px] font-bold rounded-full border border-slate-200 text-slate-600 hover:text-slate-800 hover:border-slate-300 transition"
+                    type="button"
+                  >
+                    {showSuppressedErrors ? `Hide common (${suppressedIssues.length})` : `Show common (${suppressedIssues.length})`}
+                  </button>
+                ) : null}
               </div>
             </div>
             <div className="relative flex-1 flex flex-col overflow-hidden">
+              {isTrashArmed ? (
+                <div className="absolute inset-y-0 right-3 z-20 flex items-center pointer-events-none">
+                  <div
+                    className={[
+                      'flex flex-col items-center justify-center w-14 h-14 rounded-2xl border shadow-sm transition-all',
+                      isTrashActive ? 'bg-error text-white border-error scale-105' : 'bg-white/90 text-error border-red-200'
+                    ].join(' ')}
+                  >
+                    <span className="material-symbols-outlined text-[22px]">{isTrashActive ? 'delete_forever' : 'delete'}</span>
+                    <span className="text-[9px] font-bold mt-0.5">{isTrashActive ? 'Release' : 'Bin'}</span>
+                  </div>
+                </div>
+              ) : null}
               <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar pane-wrap">
-                {validationIssues.length === 0 ? (
+                {visibleIssuesAfterDismiss.length === 0 ? (
                   <div className="p-4 bg-white rounded-xl shadow-sm border-l-4 border-green-500 flex items-center gap-4">
                     <span className="material-symbols-outlined text-green-600">check_circle</span>
-                    <p className="text-sm font-semibold text-green-700">No validation errors found. This file is clean.</p>
+                    <p className="text-sm font-semibold text-green-700">
+                      {suppressedIssues.length > 0 && !showSuppressedErrors
+                        ? 'No visible errors. Common issues are hidden.'
+                        : 'No validation errors found. This file is clean.'}
+                    </p>
                   </div>
                 ) : (
-                  validationIssues.map((issue, idx) => {
-                    const isFixed = fixedErrorIds.has(idx);
-                    const isLoading = !!llmFixLoading[idx];
-                    const errObj = {
-                      code: issue.code || issue.error_code,
-                      message: issue.message || issue.error_message,
-                      segment: issue.segmentId || issue.segment,
-                      loop: issue.loop_id || issue.loop,
-                      severity: issue.severity,
-                      current_value: issue.currentValue,
-                    };
+                  visibleIssuesAfterDismiss.map((issue) => {
+                    const issueKey = issue.key;
+                    if (dismissedErrorIds.has(issueKey)) return null;
+                    const isFixed = fixedErrorIds.has(issueKey);
+                    const offset = swipeOffsets[issueKey] || 0;
+                    const isDismissing = offset > 120;
+                    const trashOpacity = Math.min(offset / 120, 1);
+                    const trashScale = 0.6 + trashOpacity * 0.4;
                     return (
-                      <div key={issue.code + idx} className={['error-card p-4 rounded-xl shadow-sm border-l-4 transition-all duration-300', isFixed ? 'bg-green-50 border-green-500' : issue.severity === 'warning' ? 'bg-white border-amber-400' : 'bg-white border-error'].join(' ')}>
-                        <div className="flex gap-3">
-                          <div className={['w-9 h-9 rounded-lg flex items-center justify-center shrink-0', isFixed ? 'bg-green-100 text-green-600' : issue.severity === 'warning' ? 'bg-amber-100 text-amber-600' : 'bg-error-container text-error'].join(' ')}>
-                            <span className="material-symbols-outlined">{isFixed ? 'check_circle' : 'report'}</span>
+                      <div
+                        key={issueKey}
+                        className="relative overflow-hidden rounded-xl"
+                        style={{ touchAction: 'pan-y' }}
+                      >
+                        {/* Trash icon reveal behind the card */}
+                        <div
+                          className="absolute inset-0 flex items-center rounded-xl transition-colors"
+                          style={{
+                            background: isDismissing
+                              ? 'linear-gradient(90deg, #ef4444 0%, #dc2626 100%)'
+                              : `linear-gradient(90deg, rgba(239,68,68,${trashOpacity * 0.15}) 0%, rgba(239,68,68,${trashOpacity * 0.05}) 100%)`,
+                          }}
+                        >
+                          <div
+                            className="flex flex-col items-center justify-center ml-5 transition-all"
+                            style={{
+                              opacity: trashOpacity,
+                              transform: `scale(${trashScale})`,
+                            }}
+                          >
+                            <span
+                              className="material-symbols-outlined transition-colors"
+                              style={{
+                                fontSize: 28,
+                                color: isDismissing ? '#fff' : '#ef4444',
+                              }}
+                            >
+                              delete
+                            </span>
+                            <span
+                              className="text-[9px] font-bold mt-0.5 transition-colors"
+                              style={{ color: isDismissing ? '#fff' : '#ef4444' }}
+                            >
+                              {isDismissing ? 'Release' : 'Dismiss'}
+                            </span>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <h4 className={isFixed ? 'text-sm font-bold text-green-700' : 'text-sm font-bold text-on-surface'}>{issue.code}</h4>
-                              {isFixed
-                                ? <span className="text-[10px] font-bold px-2 py-0.5 bg-green-100 text-green-700 rounded-full">FIXED</span>
-                                : <span className="text-[10px] font-mono px-2 py-0.5 bg-surface-container rounded uppercase">{issue.severity}</span>
-                              }
+                        </div>
+                        {/* Swipeable error card */}
+                        <div
+                          className={[
+                            'error-card p-4 rounded-xl shadow-sm border-l-4 transition-all cursor-grab relative z-10',
+                            isFixed ? 'bg-green-50 border-green-500' : issue.severity === 'warning' ? 'bg-white border-amber-400' : 'bg-white border-error',
+                            swipingError === issueKey ? 'shadow-lg' : '',
+                          ].join(' ')}
+                          style={{
+                            transform: `translateX(${offset}px)`,
+                            transition: swipingError === issueKey ? 'none' : 'transform 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s',
+                            opacity: isDismissing ? 0.7 : 1,
+                          }}
+                          onPointerDown={(e) => {
+                            e.currentTarget.setPointerCapture(e.pointerId);
+                            swipeStartRef.current = { x: e.clientX, y: e.clientY, key: issueKey, pointerId: e.pointerId };
+                            isLongPressRef.current = false;
+                            longPressTimerRef.current = setTimeout(() => {
+                              isLongPressRef.current = true;
+                              setSwipingError(issueKey);
+                            }, 300);
+                          }}
+                          onPointerMove={(e) => {
+                            if (!swipeStartRef.current || swipeStartRef.current.key !== issueKey) return;
+                            const dx = e.clientX - swipeStartRef.current.x;
+                            const dy = e.clientY - swipeStartRef.current.y;
+                            // Cancel long press if moved too early
+                            if (!isLongPressRef.current && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+                              clearTimeout(longPressTimerRef.current);
+                            }
+                            if (!isLongPressRef.current) return;
+                            // Only allow right swipe
+                            const clampedDx = Math.max(0, dx);
+                            setSwipeOffsets((prev) => ({ ...prev, [issueKey]: clampedDx }));
+                          }}
+                          onPointerUp={() => {
+                            clearTimeout(longPressTimerRef.current);
+                            const off = swipeOffsets[issueKey] || 0;
+                            if (off > 120) {
+                              // Dismiss with animation
+                              setSwipeOffsets((prev) => ({ ...prev, [issueKey]: 400 }));
+                              setTimeout(() => {
+                                setDismissedErrorIds((prev) => new Set([...prev, issueKey]));
+                                setSwipeOffsets((prev) => { const n = { ...prev }; delete n[issueKey]; return n; });
+                              }, 300);
+                            } else {
+                              setSwipeOffsets((prev) => ({ ...prev, [issueKey]: 0 }));
+                            }
+                            setSwipingError(null);
+                            swipeStartRef.current = null;
+                            isLongPressRef.current = false;
+                          }}
+                          onPointerCancel={() => {
+                            clearTimeout(longPressTimerRef.current);
+                            setSwipeOffsets((prev) => ({ ...prev, [issueKey]: 0 }));
+                            setSwipingError(null);
+                            swipeStartRef.current = null;
+                            isLongPressRef.current = false;
+                          }}
+                        >
+                          <div className="flex gap-3">
+                            <div className={['w-9 h-9 rounded-lg flex items-center justify-center shrink-0', isFixed ? 'bg-green-100 text-green-600' : issue.severity === 'warning' ? 'bg-amber-100 text-amber-600' : 'bg-error-container text-error'].join(' ')}>
+                              <span className="material-symbols-outlined">{isFixed ? 'check_circle' : 'report'}</span>
                             </div>
-                            <p className={isFixed ? 'text-xs mt-1 break-words text-green-600 line-through opacity-60' : 'text-xs text-on-surface-variant mt-1 break-words'}>{issue.message}</p>
-                            {!isFixed && (
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                {issue.loop ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">LOOP: {issue.loop}</span> : null}
-                                {issue.segmentId ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">SEG: {issue.segmentId}</span> : null}
-                                {issue.elementPosition ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">ELM: {issue.elementPosition}</span> : null}
-                                {issue.currentValue ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">VALUE: {issue.currentValue}</span> : null}
-                              </div>
-                            )}
-                            {!isFixed && (
-                              <button
-                                onClick={() => fixErrorWithLLM(errObj, idx)}
-                                disabled={isLoading || !currentFileId}
-                                className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-lg text-[11px] font-bold hover:bg-primary/90 active:scale-95 disabled:opacity-40 transition-all"
-                                type="button"
-                              >
-                                {isLoading
-                                  ? <><span className="animate-spin material-symbols-outlined text-[14px]">progress_activity</span><span>Fixing with AI...</span></>
-                                  : <><span className="material-symbols-outlined text-[14px]">auto_fix_high</span><span>Fix with AI</span></>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <h4 className={isFixed ? 'text-sm font-bold text-green-700' : 'text-sm font-bold text-on-surface'}>{issue.code}</h4>
+                                {isFixed
+                                  ? <span className="text-[10px] font-bold px-2 py-0.5 bg-green-100 text-green-700 rounded-full">FIXED</span>
+                                  : <span className="text-[10px] font-mono px-2 py-0.5 bg-surface-container rounded uppercase">{issue.severity}</span>
                                 }
-                              </button>
-                            )}
+                              </div>
+                              <p className={isFixed ? 'text-xs mt-1 break-words text-green-600 line-through opacity-60' : 'text-xs text-on-surface-variant mt-1 break-words'}>{issue.message}</p>
+                              {!isFixed && (
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  {issue.loop ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">LOOP: {issue.loop}</span> : null}
+                                  {issue.segmentId ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">SEG: {issue.segmentId}</span> : null}
+                                  {issue.elementPosition ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">ELM: {issue.elementPosition}</span> : null}
+                                  {issue.currentValue ? <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container rounded">VALUE: {issue.currentValue}</span> : null}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
                     );
                   })
-                )}
                 )}
 
                 {suggestionItems.length > 0 ? (
@@ -1431,28 +1710,13 @@ export function MasterParserPage() {
               ) : null}
               <div className="relative z-20 border-t border-slate-200/40 bg-white/90 backdrop-blur-sm px-4 py-3 flex items-center justify-between">
                 <button
-                  onClick={async () => {
-                    if (!currentFileId || !validationIssues.length) return;
-                    for (let i = 0; i < validationIssues.length; i++) {
-                      if (fixedErrorIds.has(i)) continue;
-                      const issue = validationIssues[i];
-                      const errObj = {
-                        code: issue.code || issue.error_code,
-                        message: issue.message || issue.error_message,
-                        segment: issue.segmentId || issue.segment,
-                        loop: issue.loop_id || issue.loop,
-                        severity: issue.severity,
-                        current_value: issue.currentValue,
-                      };
-                      await fixErrorWithLLM(errObj, i);
-                    }
-                  }}
-                  disabled={!currentFileId || validationIssues.length === 0 || Object.values(llmFixLoading).some(Boolean)}
+                  onClick={() => fixAllErrors()}
+                  disabled={!currentFileId || validationIssues.length === 0 || fixAllLoading}
                   className="px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-40 flex items-center gap-1.5"
                   type="button"
                 >
-                  <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
-                  {Object.values(llmFixLoading).some(Boolean) ? 'Fixing...' : 'Fix errors'}
+                  <span className={fixAllLoading ? 'animate-spin material-symbols-outlined text-[14px]' : 'material-symbols-outlined text-[14px]'}>{fixAllLoading ? 'progress_activity' : 'auto_fix_high'}</span>
+                  {fixAllLoading ? 'Fixing with AI...' : 'Fix errors'}
                 </button>
                 <div className="flex gap-2">
                   <button className={paneButtonClass('copilot')} onClick={() => togglePane('copilot')} aria-label="Open Copilot panel" type="button">

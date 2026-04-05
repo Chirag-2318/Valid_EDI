@@ -4,6 +4,8 @@ import tempfile
 from validedi import parse, validate, export_json, extract_claims, extract_payments, extract_enrollments
 from validedi.llm import explain
 
+SUPPRESSED_ERROR_CODES = {"DIAGNOSIS_CODE_FORMAT", "CHARGE_TOTAL_CHECK", "AMOUNT_FORMAT"}
+
 
 class EDIService:
     def _parse_with_temp_file(self, file_bytes: bytes, original_filename: str):
@@ -51,6 +53,14 @@ class EDIService:
 
         envelope = edi_result.envelope
         errors = val_result.errors or []
+        issues = [e.model_dump() for e in errors]
+        filtered_issues = [
+            i for i in issues
+            if i.get("code") not in SUPPRESSED_ERROR_CODES and i.get("severity") != "warning"
+        ]
+        error_count = len(filtered_issues)
+        warning_count = 0
+        is_valid = error_count == 0
         
         # NEW in v0.3.0: Extract structured data based on transaction type
         structured_data = None
@@ -85,12 +95,13 @@ class EDIService:
             "raw_json": {
                 "report": human_report,
                 "structured_data": structured_data,  # NEW: Extracted business data
-                "json_export": json_export  # NEW: Full JSON export (now dict, not string)
+                "json_export": json_export,  # NEW: Full JSON export (now dict, not string)
+                "raw_edi": content,
             },
-            "is_valid": val_result.is_valid,
-            "error_count": val_result.error_count,
-            "warning_count": val_result.warning_count,
-            "issues": [e.model_dump() for e in errors],
+            "is_valid": is_valid,
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "issues": filtered_issues,
         }
 
 def _extract_835_claims_flat(edi_result) -> list:

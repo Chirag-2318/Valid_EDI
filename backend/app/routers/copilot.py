@@ -21,6 +21,7 @@ from app.db_models import EDIFile, ParseResult, ValidationErrorDB
 from app.services.chat import ask_huggingface
 
 router = APIRouter()
+SUPPRESSED_ERROR_CODES = {"DIAGNOSIS_CODE_FORMAT", "CHARGE_TOTAL_CHECK", "AMOUNT_FORMAT"}
 
 
 class AnalyzeRequest(BaseModel):
@@ -45,13 +46,18 @@ async def _fetch_context(file_id: str, db: AsyncSession, user: UserContext) -> d
     ensure_view_for_transaction(user, file_row.transaction_type)
     parse_row = (await db.execute(select(ParseResult).where(ParseResult.file_id == fid))).scalar_one_or_none()
     errors = (await db.execute(select(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))).scalars().all()
+    filtered_errors = [
+        e for e in errors
+        if (e.error_code or "") not in SUPPRESSED_ERROR_CODES
+        and (e.severity or "").lower() != "warning"
+    ]
     raw_json = parse_row.raw_json or {} if parse_row else {}
     return {
         "filename": file_row.filename,
         "transaction_type": file_row.transaction_type,
         "is_valid": file_row.is_valid,
-        "error_count": file_row.error_count,
-        "warning_count": file_row.warning_count,
+        "error_count": len(filtered_errors),
+        "warning_count": 0,
         "sender_id": parse_row.sender_id if parse_row else None,
         "receiver_id": parse_row.receiver_id if parse_row else None,
         "interchange_date": str(parse_row.interchange_date) if parse_row and parse_row.interchange_date else None,
@@ -60,7 +66,7 @@ async def _fetch_context(file_id: str, db: AsyncSession, user: UserContext) -> d
         "validation_errors": [
             {"segment": e.segment, "error_code": e.error_code, "error_message": e.error_message,
              "severity": e.severity, "loop_id": e.loop_id, "suggestion": e.suggestion}
-            for e in errors
+            for e in filtered_errors
         ],
     }
 
@@ -175,6 +181,16 @@ async def apply_fix(
 
     # Recalculate remaining errors
     remaining_errors = (await db.execute(select(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))).scalars().all()
+    filtered_remaining = [
+        e for e in remaining_errors
+        if (e.error_code or "") not in SUPPRESSED_ERROR_CODES
+        and (e.severity or "").lower() != "warning"
+    ]
+    filtered_remaining = [
+        e for e in remaining_errors
+        if (e.error_code or "") not in SUPPRESSED_ERROR_CODES
+        and (e.severity or "").lower() != "warning"
+    ]
     if fix_type == "AUTO":
         await db.execute(delete(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))
         remaining_count = 0
@@ -185,12 +201,13 @@ async def apply_fix(
             "CHARGE_TOTAL": ["CHARGE_TOTAL_CHECK", "AMOUNT_MISMATCH", "CLM02"],
         }
         codes_to_clear = fix_to_error_codes.get(fix_type, [])
-        remaining_count = len(remaining_errors)
+        remaining_count = len(filtered_remaining)
         if codes_to_clear:
             for err in remaining_errors:
                 if any(code in (err.error_code or "") for code in codes_to_clear):
                     await db.execute(delete(ValidationErrorDB).where(ValidationErrorDB.id == err.id))
-                    remaining_count -= 1
+                    if (err.error_code or "") not in SUPPRESSED_ERROR_CODES and (err.severity or "").lower() != "warning":
+                        remaining_count -= 1
 
     # Always update edi_files with current status
     file_row_update = (await db.execute(select(EDIFile).where(EDIFile.id == fid))).scalar_one_or_none()
@@ -207,6 +224,11 @@ async def apply_fix(
     # Return refreshed data so frontend can update without reload
     refreshed_parse = (await db.execute(select(ParseResult).where(ParseResult.file_id == fid))).scalar_one_or_none()
     refreshed_errors = (await db.execute(select(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))).scalars().all()
+    filtered_refreshed = [
+        e for e in refreshed_errors
+        if (e.error_code or "") not in SUPPRESSED_ERROR_CODES
+        and (e.severity or "").lower() != "warning"
+    ]
     refreshed_file = (await db.execute(select(EDIFile).where(EDIFile.id == fid))).scalar_one_or_none()
     return {
         "success": True,
@@ -215,12 +237,12 @@ async def apply_fix(
         "remaining_errors": [
             {"id": str(e.id), "segment": e.segment, "error_code": e.error_code,
              "error_message": e.error_message, "severity": e.severity, "suggestion": e.suggestion}
-            for e in refreshed_errors
+            for e in filtered_refreshed
         ],
         "file_status": {
             "is_valid": refreshed_file.is_valid if refreshed_file else False,
-            "error_count": refreshed_file.error_count if refreshed_file else 0,
-            "warning_count": refreshed_file.warning_count if refreshed_file else 0,
+            "error_count": remaining_count if refreshed_file else 0,
+            "warning_count": 0,
         },
     }
 
@@ -295,10 +317,22 @@ async def fix_with_llm(
             for e in db_errors
         ]
 
-    # Ask LLM to fix ALL errors at once
-    corrected_edi = await ask_llm_fix_edi(raw_edi, all_errors)
-    if not corrected_edi or len(corrected_edi.strip()) < 20:
-        raise HTTPException(status_code=422, detail="LLM could not produce a corrected EDI. Check your Groq API key.")
+    # Filter out library crash errors (validedi internal exceptions, not real EDI issues)
+    all_errors = [
+        e for e in all_errors
+        if "raised an unexpected error" not in (e.get("message") or "")
+    ]
+
+    if not all_errors:
+        raise HTTPException(status_code=400, detail="No fixable errors found. The reported issues are library-internal and cannot be resolved by editing the EDI content.")
+
+    # Ask LLM to fix errors with structured changes
+    fix_result = await ask_llm_fix_edi(raw_edi, all_errors)
+    changes = fix_result.get("changes", [])
+    corrected_edi = fix_result.get("corrected_edi", "")
+
+    if not corrected_edi or not changes:
+        raise HTTPException(status_code=422, detail="AI could not produce fixes for the reported errors. The errors may require manual correction.")
 
     corrected_bytes = corrected_edi.encode("utf-8")
 
@@ -349,6 +383,7 @@ async def fix_with_llm(
     return {
         "success": True,
         "corrected_edi": corrected_edi,
+        "changes": changes,
         "remaining_errors": [
             {
                 "id": str(e.id),
@@ -358,7 +393,7 @@ async def fix_with_llm(
                 "severity": e.severity,
                 "suggestion": e.suggestion,
             }
-            for e in remaining_errors
+            for e in filtered_remaining
         ],
         "file_status": {
             "is_valid": file_row.is_valid,
@@ -366,3 +401,4 @@ async def fix_with_llm(
             "warning_count": file_row.warning_count,
         },
     }
+

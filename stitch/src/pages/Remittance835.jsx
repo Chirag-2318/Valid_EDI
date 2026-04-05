@@ -277,7 +277,6 @@ export function Remittance835Page() {
                   <th className="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant">Trace Number / File ID</th>
                   <th className="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant">Type</th>
                   <th className="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant text-right">Errors</th>
-                  <th className="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant text-right">Warnings</th>
                   <th className="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant">Processed Date</th>
                   <th className="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant">Status</th>
                   <th className="px-6 py-4 text-[11px] font-extrabold uppercase tracking-widest text-on-surface-variant"></th>
@@ -286,7 +285,7 @@ export function Remittance835Page() {
               <tbody id="remittance-tbody" className="divide-y divide-outline-variant/10">
                 {pageFiles.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-sm text-slate-400 italic">
+                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-slate-400 italic">
                       {allFiles.length === 0 ? 'No 835 remittance files uploaded yet.' : 'No results match your search.'}
                     </td>
                   </tr>
@@ -304,7 +303,6 @@ export function Remittance835Page() {
                       </td>
                       <td className="px-6 py-4"><span className="text-sm font-medium">{(file.transaction_type || '').toUpperCase()}</span></td>
                       <td className="px-6 py-4 text-right"><span className="text-sm font-medium">{file.error_count || 0} errors</span></td>
-                      <td className="px-6 py-4 text-right"><span className="text-sm font-bold text-primary">{file.warning_count || 0} warnings</span></td>
                       <td className="px-6 py-4"><span className="text-sm text-on-surface-variant">{file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '-'}</span></td>
                       <td className="px-6 py-4"><span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${statusClass}`}>{statusText}</span></td>
                       <td className="px-6 py-4 text-right">

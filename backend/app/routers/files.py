@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_
 from sqlalchemy import delete
+from urllib.request import urlopen
 from app.auth.firebase_auth import (
     UserContext,
     allowed_transaction_types,
@@ -17,10 +18,13 @@ from app.schemas import EDIFileResponse, ParseResultResponse, ValidationErrorRes
 from app.services.edi_service import EDIService
 from app.services.db_service import DBService, parse_interchange_date
 from app.services.s3_service import S3Service
-from typing import Any, Dict, List
+from app.parser.x12_parser import parse_x12
+from typing import Any, Dict, List, Optional
+from datetime import datetime
 import uuid
 
 router = APIRouter()
+SUPPRESSED_ERROR_CODES = {"DIAGNOSIS_CODE_FORMAT", "CHARGE_TOTAL_CHECK", "AMOUNT_FORMAT"}
 
 
 class RawUpdateRequest(BaseModel):
@@ -45,6 +49,37 @@ async def list_files(
         .limit(limit)
     )
     files = result.scalars().all()
+    file_ids = [f.id for f in files]
+    if file_ids:
+        counts = await db.execute(
+            select(ValidationErrorDB.file_id, ValidationErrorDB.severity, func.count())
+            .where(ValidationErrorDB.file_id.in_(file_ids))
+            .where(
+                or_(
+                    ValidationErrorDB.error_code.is_(None),
+                    ~ValidationErrorDB.error_code.in_(SUPPRESSED_ERROR_CODES),
+                )
+            )
+            .where(
+                or_(
+                    ValidationErrorDB.severity.is_(None),
+                    func.lower(ValidationErrorDB.severity) != "warning",
+                )
+            )
+            .group_by(ValidationErrorDB.file_id, ValidationErrorDB.severity)
+        )
+        count_map = {}
+        for file_id, severity, count in counts.all():
+            entry = count_map.setdefault(file_id, {"error": 0, "warning": 0})
+            if str(severity or "error").lower() == "warning":
+                entry["warning"] = count
+            else:
+                entry["error"] = count
+        for f in files:
+            counts_for_file = count_map.get(f.id, {"error": 0, "warning": 0})
+            f.error_count = counts_for_file["error"]
+            f.warning_count = 0
+            f.is_valid = counts_for_file["error"] == 0
     return files
 
 
@@ -91,7 +126,11 @@ async def get_validation_errors(
     ensure_view_for_transaction(user, file_row.transaction_type)
     result = await db.execute(select(ValidationErrorDB).where(ValidationErrorDB.file_id == file_id))
     errors = result.scalars().all()
-    return errors
+    return [
+        e for e in errors
+        if (e.error_code or "") not in SUPPRESSED_ERROR_CODES
+        and (e.severity or "").lower() != "warning"
+    ]
 
 
 @router.get("/files/{file_id}/raw")
@@ -116,6 +155,13 @@ async def get_raw_edi(
         raw_fallback = parse_row.raw_json.get("raw_edi")
     if raw_fallback:
         return Response(content=raw_fallback, media_type="text/plain")
+    if file_row.s3_url:
+        try:
+            with urlopen(file_row.s3_url) as resp:
+                if getattr(resp, "status", 200) == 200:
+                    return Response(content=resp.read(), media_type="text/plain")
+        except Exception:
+            pass
     raise HTTPException(status_code=404, detail="Raw file not available")
 
 
@@ -427,6 +473,13 @@ async def get_file_npi_status(
             npi_map[npi] = name
 
     if not npi_map:
+        raw_edi = (parse_row.raw_json or {}).get("raw_edi") or ""
+        if raw_edi:
+            import re
+            for match in re.finditer(r"NM1\*[^~]*?\*(\d{10})", raw_edi):
+                npi_map.setdefault(match.group(1), "")
+
+    if not npi_map:
         return {"file_id": str(file_id), "npis": []}
 
     nppes_url = "https://npiregistry.cms.hhs.gov/api/"
@@ -465,4 +518,220 @@ async def get_file_npi_status(
                 results.append({"npi": npi, "edi_name": edi_name, "found": False, "active": False, "nppes_name": None, "error": "lookup_failed"})
 
     return {"file_id": str(file_id), "npis": results}
+
+
+def _parse_date(value: str | None) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y%m%d")
+    except ValueError:
+        return None
+
+
+def _build_member_name(last_name: str, first_name: str) -> str:
+    parts = [p for p in [first_name, last_name] if p]
+    return " ".join(parts)
+
+
+def _extract_834_roster(segments) -> Dict[str, Dict[str, Any]]:
+    roster: Dict[str, Dict[str, Any]] = {}
+    current: Dict[str, Any] | None = None
+
+    for seg in segments:
+        if seg.id == "NM1" and len(seg.elements) > 8 and seg.elements[0] == "IL":
+            member_id = seg.elements[8]
+            current = {
+                "member_id": member_id,
+                "first_name": seg.elements[3] if len(seg.elements) > 3 else "",
+                "last_name": seg.elements[2] if len(seg.elements) > 2 else "",
+                "coverage_start": "",
+                "coverage_end": "",
+            }
+            if member_id:
+                roster[member_id] = current
+            continue
+        if seg.id == "DTP" and current and len(seg.elements) > 2:
+            if seg.elements[0] == "348":
+                current["coverage_start"] = seg.elements[2]
+            elif seg.elements[0] == "349":
+                current["coverage_end"] = seg.elements[2]
+
+    return roster
+
+
+def _extract_837_claims(segments) -> List[Dict[str, Any]]:
+    claims: List[Dict[str, Any]] = []
+    current_claim: Dict[str, Any] | None = None
+    current_member_id = ""
+    current_member_name = ""
+    pending_claim_date = ""
+
+    def finalize():
+        nonlocal current_claim
+        if current_claim and current_claim.get("claim_id"):
+            claims.append(dict(current_claim))
+        current_claim = None
+
+    for seg in segments:
+        if seg.id == "NM1" and len(seg.elements) > 8 and seg.elements[0] == "IL":
+            current_member_id = seg.elements[8]
+            first = seg.elements[3] if len(seg.elements) > 3 else ""
+            last = seg.elements[2] if len(seg.elements) > 2 else ""
+            current_member_name = _build_member_name(last, first)
+            if current_claim and not current_claim.get("member_id"):
+                current_claim["member_id"] = current_member_id
+                current_claim["member_name"] = current_member_name
+            continue
+        if seg.id == "CLM" and seg.elements:
+            finalize()
+            current_claim = {
+                "claim_id": seg.elements[0],
+                "member_id": current_member_id,
+                "member_name": current_member_name,
+                "claim_date": pending_claim_date,
+            }
+            pending_claim_date = ""
+            continue
+        if seg.id == "DTP" and len(seg.elements) > 2 and seg.elements[0] in {"472", "434"}:
+            if current_claim:
+                current_claim["claim_date"] = current_claim.get("claim_date") or seg.elements[2]
+            else:
+                pending_claim_date = seg.elements[2]
+
+    finalize()
+    return claims
+
+
+@router.get("/files/{file_id}/eligibility-status")
+async def get_eligibility_status(
+    file_id: uuid.UUID,
+    enrollment_file_id: Optional[uuid.UUID] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Compare 834 member roster (NM1*IL -> NM109) against 837 claims (NM1*IL -> NM109)."""
+    file_row = (await db.execute(select(EDIFile).where(EDIFile.id == file_id))).scalar_one_or_none()
+    if not file_row:
+        raise HTTPException(status_code=404, detail="File not found")
+    ensure_view_for_transaction(user, file_row.transaction_type)
+
+    if enrollment_file_id:
+        enroll_row = (await db.execute(select(EDIFile).where(EDIFile.id == enrollment_file_id))).scalar_one_or_none()
+    else:
+        enroll_row = (await db.execute(
+            select(EDIFile)
+            .where(func.lower(EDIFile.transaction_type) == "834")
+            .order_by(EDIFile.uploaded_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+
+    if not enroll_row:
+        return {"file_id": str(file_id), "enrollment_file_id": None, "members": []}
+
+    ensure_view_for_transaction(user, enroll_row.transaction_type)
+
+    def _load_raw(file_row, parse_row):
+        if file_row.s3_key:
+            try:
+                return S3Service().get_file_bytes(file_row.s3_key).decode("utf-8", errors="ignore")
+            except Exception:
+                pass
+        if parse_row and isinstance(parse_row.raw_json, dict):
+            raw = parse_row.raw_json.get("raw_edi")
+            if raw:
+                return raw
+        if file_row.s3_url:
+            try:
+                with urlopen(file_row.s3_url) as resp:
+                    if getattr(resp, "status", 200) == 200:
+                        return resp.read().decode("utf-8", errors="ignore")
+            except Exception:
+                pass
+        return ""
+
+    enroll_parse = (await db.execute(select(ParseResult).where(ParseResult.file_id == enroll_row.id))).scalar_one_or_none()
+    claim_parse = (await db.execute(select(ParseResult).where(ParseResult.file_id == file_id))).scalar_one_or_none()
+
+    enroll_raw = _load_raw(enroll_row, enroll_parse)
+    claim_raw = _load_raw(file_row, claim_parse)
+
+    if not enroll_raw or not claim_raw:
+        return {
+            "file_id": str(file_id),
+            "enrollment_file_id": str(enroll_row.id),
+            "enrollment_filename": enroll_row.filename,
+            "members": [],
+        }
+
+    enroll_segments = parse_x12(enroll_raw).segments
+    claim_segments = parse_x12(claim_raw).segments
+
+    roster = _extract_834_roster(enroll_segments)
+    claims = _extract_837_claims(claim_segments)
+
+    results = []
+    eligible = 0
+    ineligible = 0
+    unknown = 0
+    not_found = 0
+
+    for claim in claims:
+        member_id = claim.get("member_id") or ""
+        claim_date = _parse_date(claim.get("claim_date"))
+        roster_entry = roster.get(member_id)
+        status = "unknown"
+        reason = "missing_dates"
+        roster_name = ""
+
+        if not roster_entry:
+            status = "not_in_roster"
+            reason = "no_match"
+            not_found += 1
+        else:
+            roster_name = _build_member_name(roster_entry.get("last_name", ""), roster_entry.get("first_name", ""))
+            start_date = _parse_date(roster_entry.get("coverage_start"))
+            end_date = _parse_date(roster_entry.get("coverage_end"))
+            if claim_date and start_date and claim_date < start_date:
+                status = "not_effective"
+                reason = "before_start"
+                ineligible += 1
+            elif claim_date and end_date and claim_date > end_date:
+                status = "terminated"
+                reason = "after_end"
+                ineligible += 1
+            elif claim_date and (start_date or end_date):
+                status = "eligible"
+                reason = "within_window"
+                eligible += 1
+            else:
+                status = "unknown"
+                reason = "missing_dates"
+                unknown += 1
+
+        results.append({
+            "claim_id": claim.get("claim_id"),
+            "member_id": member_id,
+            "claim_member_name": claim.get("member_name"),
+            "roster_member_name": roster_name,
+            "claim_date": claim.get("claim_date"),
+            "coverage_start": roster_entry.get("coverage_start") if roster_entry else "",
+            "coverage_end": roster_entry.get("coverage_end") if roster_entry else "",
+            "status": status,
+            "reason": reason,
+        })
+
+    return {
+        "file_id": str(file_id),
+        "enrollment_file_id": str(enroll_row.id),
+        "enrollment_filename": enroll_row.filename,
+        "members": results,
+        "summary": {
+            "total_claims": len(results),
+            "eligible": eligible,
+            "ineligible": ineligible,
+            "not_in_roster": not_found,
+            "unknown": unknown,
+        },
+    }
 

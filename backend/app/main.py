@@ -78,7 +78,8 @@ def health() -> dict[str, str]:
 @app.post("/api/parse")
 def parse_raw(request: ParseRequest, user: UserContext = Depends(get_current_user)) -> dict[str, Any]:
     parsed = parse_x12(request.content)
-    ensure_view_for_transaction(user, parsed.transaction_type)
+    if parsed.transaction_type != "UNKNOWN":
+        ensure_view_for_transaction(user, parsed.transaction_type)
     validation = validate(parsed)
     return {
         "parse_result": parsed.model_dump(),

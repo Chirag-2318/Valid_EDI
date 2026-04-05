@@ -27,6 +27,7 @@ export function Claims837Page() {
   const [remittanceMap, setRemittanceMap] = useState({});
   const [expandedRows, setExpandedRows] = useState({});
   const [npiCache, setNpiCache] = useState({});
+  const [eligibilityCache, setEligibilityCache] = useState({});
   const PAGE_SIZE = 7;
 
   useEffect(() => {
@@ -109,6 +110,13 @@ export function Claims837Page() {
         .then((r) => r.json())
         .then((data) => setNpiCache((prev) => ({ ...prev, [id]: { loading: false, data } })))
         .catch(() => setNpiCache((prev) => ({ ...prev, [id]: { loading: false, error: true } })));
+    }
+    if (!eligibilityCache[id]) {
+      setEligibilityCache((prev) => ({ ...prev, [id]: { loading: true } }));
+      authFetch('/api/files/' + id + '/eligibility-status')
+        .then((r) => r.json())
+        .then((data) => setEligibilityCache((prev) => ({ ...prev, [id]: { loading: false, data } })))
+        .catch(() => setEligibilityCache((prev) => ({ ...prev, [id]: { loading: false, error: true } })));
     }
   }
   const pageFiles = filteredFiles.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -427,7 +435,7 @@ export function Claims837Page() {
                             </tr>,
                                                         isExpanded && <tr key={file.id + '-expanded'} className="bg-slate-50/60">
                                 <td colSpan={8} className="px-6 py-4">
-                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                                     <div className="bg-white rounded-xl border border-blue-100 p-4 shadow-sm">
                                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
                                         <span className="material-symbols-outlined text-[14px] text-blue-500">receipt_long</span>
@@ -494,6 +502,67 @@ export function Claims837Page() {
                                             </div>
                                           </div>
                                         ));
+                                      })()}
+                                    </div>
+                                    <div className="bg-white rounded-xl border border-emerald-100 p-4 shadow-sm">
+                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                        <span className="material-symbols-outlined text-[14px] text-emerald-500">fact_check</span>
+                                        834 Eligibility Cross-check
+                                      </p>
+                                      {(() => {
+                                        const eligibilityState = eligibilityCache[file.id];
+                                        if (!eligibilityState || eligibilityState.loading) {
+                                          return (
+                                            <div className="flex items-center gap-2 text-xs text-slate-400">
+                                              <span className="w-3 h-3 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin inline-block"></span>
+                                              Matching roster...
+                                            </div>
+                                          );
+                                        }
+                                        if (eligibilityState.error) {
+                                          return <p className="text-xs text-slate-400 italic">Eligibility check failed</p>;
+                                        }
+                                        const payload = eligibilityState.data || {};
+                                        const members = payload.members || [];
+                                        const summary = payload.summary || {};
+                                        if (!members.length) {
+                                          return <p className="text-xs text-slate-400 italic">No member roster found for comparison</p>;
+                                        }
+                                        return (
+                                          <>
+                                            <div className="flex flex-wrap gap-2 text-[10px] font-semibold text-slate-500 mb-3">
+                                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full">Eligible {summary.eligible || 0}</span>
+                                              <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full">Ineligible {summary.ineligible || 0}</span>
+                                              <span className="px-2 py-0.5 bg-rose-50 text-rose-700 rounded-full">No roster {summary.not_in_roster || 0}</span>
+                                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">Unknown {summary.unknown || 0}</span>
+                                            </div>
+                                            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                              {members.map((m, idx) => (
+                                                <div key={idx} className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2 last:border-0">
+                                                  <div className="min-w-0">
+                                                    <p className="text-xs font-bold text-slate-800 truncate">
+                                                      {m.roster_member_name || m.claim_member_name || 'Unknown member'}
+                                                    </p>
+                                                    <p className="text-[10px] text-slate-400">Member ID: <span className="font-medium text-slate-600">{m.member_id || '--'}</span></p>
+                                                    {m.claim_id ? <p className="text-[10px] text-slate-400">Claim: <span className="font-medium text-slate-600">{m.claim_id}</span></p> : null}
+                                                  </div>
+                                                  <span className={[
+                                                    'text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0',
+                                                    m.status === 'eligible' ? 'bg-emerald-50 text-emerald-700' :
+                                                    m.status === 'terminated' || m.status === 'not_effective' ? 'bg-amber-50 text-amber-700' :
+                                                    m.status === 'not_in_roster' ? 'bg-rose-50 text-rose-700' :
+                                                    'bg-slate-100 text-slate-600'
+                                                  ].join(' ')}>
+                                                    {m.status === 'eligible' ? 'Eligible' :
+                                                      m.status === 'terminated' ? 'Terminated' :
+                                                      m.status === 'not_effective' ? 'Not effective' :
+                                                      m.status === 'not_in_roster' ? 'No roster' : 'Unknown'}
+                                                  </span>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </>
+                                        );
                                       })()}
                                     </div>
                                   </div>

@@ -14,19 +14,48 @@ class Delimiters:
 
 
 def _split_segments(content: str, delimiters: Delimiters) -> list[str]:
-    text = content.replace("\r", "").replace("\n", "")
+    text = content.replace("\r", "")
+    if delimiters.segment == "\n":
+        return [seg for seg in text.split("\n") if seg.strip()]
+    text = text.replace("\n", "")
     return [seg for seg in text.split(delimiters.segment) if seg.strip()]
 
 
 def detect_delimiters(content: str) -> Delimiters:
-    if len(content) < 106:
+    if not content:
         return Delimiters()
-    if not content.startswith("ISA"):
-        return Delimiters()
-    element = content[3]
-    segment = content[105] if len(content) > 105 else "~"
+    trimmed = content.lstrip()
+    element = "*"
+    segment = None
+    if trimmed.startswith("ISA") and len(trimmed) > 3:
+        element = trimmed[3]
+        candidate = trimmed[105] if len(trimmed) > 105 else None
+        if candidate in {"~", "\n"}:
+            segment = candidate
+    if segment is None or segment == element or (segment and segment.isalnum()):
+        if "~" in content:
+            segment = "~"
+        elif "\n" in content:
+            segment = "\n"
+        else:
+            segment = "~"
     component = ":"
     return Delimiters(element=element, segment=segment, component=component)
+
+
+def _parse_segments_loose(content: str) -> tuple[list[Segment], Delimiters]:
+    element = "*" if "*" in content else "|" if "|" in content else "^" if "^" in content else "*"
+    segment = "~" if "~" in content else "\n" if "\n" in content else "~"
+    delimiters = Delimiters(element=element, segment=segment, component=":")
+    raw_segments = _split_segments(content, delimiters)
+    segments: list[Segment] = []
+    for i, raw in enumerate(raw_segments, start=1):
+        parts = raw.split(delimiters.element)
+        segment_id = parts[0].strip()
+        elements = [p.strip() for p in parts[1:]]
+        if segment_id:
+            segments.append(Segment(id=segment_id, elements=elements, line_number=i))
+    return segments, delimiters
 
 
 def parse_segments(content: str) -> tuple[list[Segment], Delimiters]:
@@ -120,6 +149,13 @@ def build_loop_tree(segments: list[Segment], tx_type: TransactionType) -> LoopNo
 def parse_x12(content: str) -> ParseResult:
     segments, delimiters = parse_segments(content)
     tx_type = detect_transaction_type(segments)
+    if tx_type == "UNKNOWN":
+        loose_segments, loose_delimiters = _parse_segments_loose(content)
+        loose_tx = detect_transaction_type(loose_segments)
+        if loose_tx != "UNKNOWN":
+            segments = loose_segments
+            delimiters = loose_delimiters
+            tx_type = loose_tx
     envelope = extract_envelope(segments)
     tree = build_loop_tree(segments, tx_type)
 
