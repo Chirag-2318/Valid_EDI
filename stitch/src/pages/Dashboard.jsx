@@ -365,10 +365,11 @@ export function DashboardPage() {
       <header className="fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl flex justify-between items-center px-6 py-3 w-full shadow-sm dark:shadow-none transition-all duration-200">
         <div className="flex items-center gap-8">
           <span
-            className="text-xl font-bold tracking-tighter text-slate-900 dark:text-white cursor-pointer"
+            className="text-xl font-bold tracking-tighter text-slate-900 dark:text-white cursor-pointer flex items-center gap-2"
             onClick={() => window.location.reload()}
           >
-            EdiPro
+            <img src="/logo.png" alt="EdiPro logo" className="h-6 w-6 rounded-md object-contain" />
+            <span>EdiPro</span>
           </span>
           <nav className="hidden md:flex gap-6">
             <a className="text-blue-700 dark:text-blue-400 font-semibold border-b-2 border-blue-700 py-1 transition-all" href="/dashboard_sleek">
@@ -432,21 +433,7 @@ export function DashboardPage() {
         className="fixed left-0 top-0 h-full w-64 z-40 bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-2xl border-r border-slate-200/30 dark:border-slate-800/30 shadow-xl dark:shadow-2xl flex flex-col h-full py-6 pt-20 transform -translate-x-full md:translate-x-0 transition-transform duration-300"
         id="side-nav"
       >
-        <div className="px-6 mb-8 flex items-center gap-3 cursor-pointer" onClick={() => window.location.reload()}>
-          <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-            <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>
-              hub
-            </span>
-          </div>
-          <div>
-            <h2 className="text-lg font-black text-slate-900 dark:text-white leading-none">HealthConnect</h2>
-            <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mt-1">EDI Gateway</p>
-          </div>
-          <button className="md:hidden ml-auto p-2 hover:bg-slate-200/50 rounded-full" id="nav-close" aria-label="Close navigation menu" type="button">
-            <span className="material-symbols-outlined text-slate-600">close</span>
-          </button>
-        </div>
-        <nav className="flex-1 px-2 space-y-1">
+        <nav className="flex-1 px-2 space-y-1 mt-2">
           <a
             className="bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 text-sm font-medium tracking-wide scale-100 active:scale-[0.98] transition-transform duration-300"
             href="/dashboard_sleek"
@@ -579,7 +566,7 @@ export function DashboardPage() {
                     Select Files from Cloud
                   </button>
                   <input className="hidden" id="file-upload" type="file" accept=".edi,.txt,.dat,.x12,.zip" multiple />
-                  <span className="text-[10px] uppercase tracking-widest text-outline font-bold">Supports .edi, .txt, .x12, .zip — Max 256MB</span>
+                  <span className="text-[10px] uppercase tracking-widest text-outline font-bold">Supports .edi, .txt, .x12, .zip ï¿½ Max 256MB</span>
                   <p className="text-xs font-medium text-outline" id="upload-status">
                     No files uploaded yet.
                   </p>

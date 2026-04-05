@@ -837,7 +837,10 @@ export function Enrollment834Page() {
     <div className="bg-surface text-on-surface min-h-screen flex flex-col overflow-y-auto overflow-x-hidden">
       <header className="fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl flex justify-between items-center px-6 py-3 shadow-sm dark:shadow-none transition-all duration-200">
         <div className="flex items-center gap-8">
-          <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-white cursor-pointer" onClick={() => { window.location.href = '/dashboard_sleek'; }}>EdiPro</span>
+          <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-white cursor-pointer flex items-center gap-2" onClick={() => { window.location.href = '/dashboard_sleek'; }}>
+            <img src="/logo.png" alt="EdiPro logo" className="h-6 w-6 rounded-md object-contain" />
+            <span>EdiPro</span>
+          </span>
           <nav className="hidden md:flex gap-6">
             <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/dashboard_sleek">Dashboard</a>
             {canClaims ? (
@@ -875,11 +878,13 @@ export function Enrollment834Page() {
       <div className="flex flex-1 pt-16">
         <aside className="fixed left-0 top-0 h-full w-64 z-40 bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-2xl border-r border-slate-200/30 dark:border-slate-800/30 shadow-xl dark:shadow-2xl flex flex-col py-6 pt-20">
           <div className="px-6 mb-8 flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-              <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>hub</span>
-            </div>
+            <img
+              src="/logo.png"
+              alt="EdiPro logo"
+              className="h-10 w-10 rounded-xl object-contain shadow-lg shadow-primary/20"
+            />
             <div>
-              <h2 className="text-lg font-black text-slate-900 dark:text-white leading-none">HealthConnect</h2>
+              <h2 className="text-lg font-black text-slate-900 dark:text-white leading-none">EdiPro</h2>
               <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mt-1">EDI Gateway</p>
             </div>
           </div>

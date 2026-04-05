@@ -16,7 +16,10 @@ export function DocumentationPage() {
     <>
       <aside className="fixed left-0 top-0 h-full w-72 bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-2xl flex flex-col p-6 z-40 border-r border-slate-200/20 glass-nav">
         <div className="mb-10">
-          <h1 className="text-lg font-black text-slate-900 tracking-tighter uppercase">EdiPro</h1>
+          <div className="flex items-center gap-2">
+            <img src="/logo.png" alt="EdiPro logo" className="h-6 w-6 rounded-md object-contain" />
+            <h1 className="text-lg font-black text-slate-900 tracking-tighter uppercase">EdiPro</h1>
+          </div>
           <p className="text-[10px] font-bold tracking-widest text-slate-500 mt-1 uppercase">EDI Management Documentation</p>
         </div>
         <nav className="flex-1 space-y-8 overflow-y-auto pr-2">

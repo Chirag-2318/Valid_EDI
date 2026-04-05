@@ -11,6 +11,315 @@ import {
 
 const bodyClassName = 'bg-background font-body text-on-background antialiased selection:bg-primary/10 selection:text-primary page-remittance';
 
+const CLAIM_STATUS_LABELS = {
+  '1': 'Processed as primary',
+  '2': 'Processed as secondary',
+  '3': 'Processed as tertiary',
+  '4': 'Denied',
+  '19': 'Processed as primary, forwarded to additional payer',
+  '20': 'Processed as secondary, forwarded to additional payer',
+  '21': 'Processed as tertiary, forwarded to additional payer',
+  '22': 'Reversal of previous payment',
+  '23': 'Not our claim, forwarded to additional payer',
+  '25': 'Predetermination pricing only'
+};
+
+const ADJUSTMENT_GROUP_LABELS = {
+  CO: 'Contractual obligation',
+  PR: 'Patient responsibility',
+  OA: 'Other adjustment',
+  PI: 'Payer initiated adjustment'
+};
+
+const ADJUSTMENT_REASON_LABELS = {
+  '1': 'Deductible',
+  '2': 'Coinsurance',
+  '3': 'Co-payment',
+  '23': 'Impact of prior payer(s)',
+  '45': 'Contractual obligation',
+  '96': 'Non-covered charge',
+  '97': 'Included in allowance for another service'
+};
+
+const PAYMENT_REF_QUALIFIERS = new Set(['EV', 'F8', '1K', 'TJ']);
+
+function toAmount(value) {
+  const numeric = parseFloat(String(value ?? '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function formatMoney(value) {
+  return `$${toAmount(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function getClaimId(claim) {
+  return String(
+    claim?.patient_account
+    || claim?.claim_id
+    || claim?.patient_control_number
+    || claim?.clp_01
+    || ''
+  ).trim();
+}
+
+function adjustmentLabel(groupCode, reasonCode) {
+  const group = String(groupCode || '').toUpperCase();
+  const reason = String(reasonCode || '').trim();
+  const reasonLabel = ADJUSTMENT_REASON_LABELS[reason];
+  const groupLabel = ADJUSTMENT_GROUP_LABELS[group] || 'Adjustment';
+
+  if (reasonLabel) {
+    return reasonLabel;
+  }
+  return groupLabel;
+}
+
+function aggregateAdjustments(entries) {
+  const grouped = new Map();
+
+  (entries || []).forEach((entry) => {
+    const group = String(entry?.group || '').toUpperCase();
+    const reason = String(entry?.reason || '').trim();
+    if (!group || !reason) {
+      return;
+    }
+
+    const key = `${group}-${reason}`;
+    const current = grouped.get(key) || {
+      code: key,
+      label: adjustmentLabel(group, reason),
+      amount: 0
+    };
+    current.amount += toAmount(entry?.amount);
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values());
+}
+
+function parseAdjustmentText(adjustmentText) {
+  if (!adjustmentText || typeof adjustmentText !== 'string') {
+    return [];
+  }
+
+  return adjustmentText
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const matched = part.match(/^([A-Z]{2})-?(\d{1,3})(?::\s*(-?\d+(?:\.\d+)?))?/i);
+      if (!matched) {
+        return null;
+      }
+      return {
+        group: matched[1].toUpperCase(),
+        reason: matched[2],
+        amount: toAmount(matched[3])
+      };
+    })
+    .filter(Boolean);
+}
+
+function parseCasElements(elements) {
+  if (!Array.isArray(elements) || elements.length < 3) {
+    return [];
+  }
+
+  const group = String(elements[0] || '').toUpperCase();
+  const parsed = [];
+
+  for (let idx = 1; idx < elements.length; idx += 3) {
+    const reason = String(elements[idx] || '').trim();
+    const amount = elements[idx + 1];
+    if (!reason) {
+      continue;
+    }
+    parsed.push({ group, reason, amount: toAmount(amount) });
+  }
+
+  return parsed;
+}
+
+function getClaimStatus(code) {
+  const cleanCode = String(code || '').trim();
+  return {
+    code: cleanCode,
+    label: CLAIM_STATUS_LABELS[cleanCode] || 'Status unavailable'
+  };
+}
+
+function asClaimsArray(rawJson) {
+  const structured = rawJson?.structured_data;
+  if (Array.isArray(structured)) {
+    return structured;
+  }
+  if (structured && Array.isArray(structured.claims)) {
+    return structured.claims;
+  }
+  const exportedClaims = rawJson?.json_export?.claims;
+  if (Array.isArray(exportedClaims)) {
+    return exportedClaims;
+  }
+  return [];
+}
+
+function normalizeClaimFromStructured(claim, fallbackPaymentRef = '') {
+  const claimId = getClaimId(claim);
+  const status = getClaimStatus(claim?.claim_status_code || claim?.status_code || claim?.claim_status);
+  const patientName = String(claim?.patient_name || claim?.patient || '').trim();
+  const paymentReference = String(claim?.eft_or_check_ref || claim?.payment_reference || fallbackPaymentRef || '').trim();
+  const adjustments = Array.isArray(claim?.adjustments)
+    ? claim.adjustments
+    : parseAdjustmentText(claim?.adjustments);
+
+  return {
+    claimId,
+    billed: toAmount(claim?.total_charged || claim?.total_charge || claim?.billed_amount || claim?.billed),
+    paid: toAmount(claim?.total_paid || claim?.paid_amount || claim?.paid),
+    patientResponsibility: toAmount(claim?.patient_responsibility),
+    claimStatusCode: status.code,
+    claimStatusLabel: status.label,
+    patientName: patientName || 'Patient unavailable',
+    paymentReference: paymentReference || 'Reference unavailable',
+    adjustments: aggregateAdjustments(adjustments)
+  };
+}
+
+function parseClaimsFromRawEdi(rawEdi, structuredFallback = []) {
+  if (!rawEdi || typeof rawEdi !== 'string') {
+    return structuredFallback;
+  }
+
+  const segmentSeparator = rawEdi.includes('~') ? '~' : '\n';
+  const rawSegments = rawEdi
+    .replace(/\r/g, '')
+    .split(segmentSeparator)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  const claims = [];
+  const fallbackByClaimId = new Map(
+    (structuredFallback || [])
+      .filter((row) => row?.claimId)
+      .map((row) => [row.claimId, row])
+  );
+
+  let currentClaim = null;
+  let paymentRef = '';
+
+  const finalizeClaim = () => {
+    if (!currentClaim) {
+      return;
+    }
+
+    const fallback = fallbackByClaimId.get(currentClaim.claimId);
+    const status = getClaimStatus(currentClaim.claimStatusCode || fallback?.claimStatusCode);
+    claims.push({
+      claimId: currentClaim.claimId,
+      billed: currentClaim.billed,
+      paid: currentClaim.paid,
+      patientResponsibility: currentClaim.patientResponsibility,
+      claimStatusCode: status.code,
+      claimStatusLabel: status.label,
+      patientName: currentClaim.patientName || fallback?.patientName || 'Patient unavailable',
+      paymentReference: currentClaim.paymentReference || fallback?.paymentReference || 'Reference unavailable',
+      adjustments: currentClaim.adjustments.length > 0
+        ? aggregateAdjustments(currentClaim.adjustments)
+        : (fallback?.adjustments || [])
+    });
+    currentClaim = null;
+  };
+
+  for (const segmentText of rawSegments) {
+    const elementSeparator = segmentText.includes('*')
+      ? '*'
+      : segmentText.includes('|')
+        ? '|'
+        : '^';
+    const parts = segmentText.split(elementSeparator);
+    const id = String(parts[0] || '').trim().toUpperCase();
+    const elements = parts.slice(1);
+
+    if (id === 'TRN' && elements[1]) {
+      paymentRef = String(elements[1]).trim();
+      if (currentClaim && !currentClaim.paymentReference) {
+        currentClaim.paymentReference = paymentRef;
+      }
+      continue;
+    }
+
+    if (id === 'CLP' && elements.length > 4) {
+      finalizeClaim();
+      currentClaim = {
+        claimId: String(elements[0] || '').trim(),
+        claimStatusCode: String(elements[1] || '').trim(),
+        billed: toAmount(elements[2]),
+        paid: toAmount(elements[3]),
+        patientResponsibility: toAmount(elements[4]),
+        patientName: '',
+        paymentReference: paymentRef,
+        adjustments: []
+      };
+      continue;
+    }
+
+    if (id === 'NM1' && currentClaim && String(elements[0] || '').toUpperCase() === 'QC') {
+      const lastName = String(elements[2] || '').trim();
+      const firstName = String(elements[3] || '').trim();
+      const patient = [firstName, lastName].filter(Boolean).join(' ').trim();
+      if (patient) {
+        currentClaim.patientName = patient;
+      }
+      continue;
+    }
+
+    if (id === 'CAS' && currentClaim) {
+      currentClaim.adjustments.push(...parseCasElements(elements));
+      continue;
+    }
+
+    if (id === 'REF' && elements[1]) {
+      const qualifier = String(elements[0] || '').toUpperCase();
+      const refValue = String(elements[1]).trim();
+
+      if (PAYMENT_REF_QUALIFIERS.has(qualifier) && !paymentRef) {
+        paymentRef = refValue;
+      }
+      if (currentClaim && PAYMENT_REF_QUALIFIERS.has(qualifier) && !currentClaim.paymentReference) {
+        currentClaim.paymentReference = refValue;
+      }
+    }
+  }
+
+  finalizeClaim();
+  return claims.length > 0 ? claims : structuredFallback;
+}
+
+function buildClaimStories(rawJson) {
+  const structuredClaims = asClaimsArray(rawJson);
+
+  let fallbackPaymentRef = '';
+  const rawEdi = String(rawJson?.raw_edi || '');
+  if (rawEdi.includes('TRN')) {
+    const segmentSeparator = rawEdi.includes('~') ? '~' : '\n';
+    const trnSegment = rawEdi
+      .replace(/\r/g, '')
+      .split(segmentSeparator)
+      .map((segment) => segment.trim())
+      .find((segment) => segment.startsWith('TRN'));
+    if (trnSegment) {
+      const trnParts = trnSegment.split('*');
+      fallbackPaymentRef = String(trnParts[2] || trnParts[1] || '').trim();
+    }
+  }
+
+  const normalizedStructured = structuredClaims
+    .map((claim) => normalizeClaimFromStructured(claim, fallbackPaymentRef))
+    .filter((claim) => claim.claimId);
+
+  return parseClaimsFromRawEdi(rawEdi, normalizedStructured);
+}
+
 export function Remittance835Page() {
   const { permissions } = useAuth();
   const canClaims = canAny(permissions, CLAIMS_ACCESS_PERMISSIONS);
@@ -23,6 +332,8 @@ export function Remittance835Page() {
   const [currentPage, setCurrentPage] = useState(1);
   const [billedByDate, setBilledByDate] = useState([]);
   const [metrics, setMetrics] = useState({ totalFiles: 0, totalPaid: 0, adjustments: 0, collectionRate: 0 });
+  const [expandedRows, setExpandedRows] = useState({});
+  const [claimStoriesByFile, setClaimStoriesByFile] = useState({});
   const PAGE_SIZE = 7;
 
   useEffect(() => {
@@ -101,11 +412,64 @@ export function Remittance835Page() {
   const totalPages = Math.ceil(filteredFiles.length / PAGE_SIZE);
   const pageFiles = filteredFiles.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
+  const loadClaimStories = async (fileId) => {
+    setClaimStoriesByFile((prev) => ({
+      ...prev,
+      [fileId]: {
+        loading: true,
+        error: null,
+        claims: []
+      }
+    }));
+
+    try {
+      const response = await authFetch(`/api/files/${fileId}/parse-result`);
+      if (!response.ok) {
+        throw new Error(`parse-result failed with status ${response.status}`);
+      }
+
+      const parseResult = await response.json();
+      const rawJson = parseResult?.raw_json || {};
+      const claims = buildClaimStories(rawJson);
+
+      setClaimStoriesByFile((prev) => ({
+        ...prev,
+        [fileId]: {
+          loading: false,
+          error: null,
+          claims
+        }
+      }));
+    } catch (error) {
+      console.error('Failed to load claim stories:', error);
+      setClaimStoriesByFile((prev) => ({
+        ...prev,
+        [fileId]: {
+          loading: false,
+          error: 'Could not load claim-level remittance details for this file.',
+          claims: []
+        }
+      }));
+    }
+  };
+
+  const toggleRow = (fileId) => {
+    const isOpening = !expandedRows[fileId];
+    setExpandedRows((prev) => ({ ...prev, [fileId]: isOpening }));
+
+    if (isOpening && !claimStoriesByFile[fileId]) {
+      loadClaimStories(fileId);
+    }
+  };
+
   return (
     <>
       <header className="fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl flex justify-between items-center px-6 py-3 shadow-sm dark:shadow-none transition-all duration-200">
         <div className="flex items-center gap-8">
-          <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-white cursor-pointer" onClick={() => { window.location.href = '/dashboard_sleek'; }}>EdiPro</span>
+          <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-white cursor-pointer flex items-center gap-2" onClick={() => { window.location.href = '/dashboard_sleek'; }}>
+            <img src="/logo.png" alt="EdiPro logo" className="h-6 w-6 rounded-md object-contain" />
+            <span>EdiPro</span>
+          </span>
           <nav className="hidden md:flex gap-6">
             <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/dashboard_sleek">Dashboard</a>
             {canClaims ? (
@@ -147,11 +511,13 @@ export function Remittance835Page() {
 
       <aside className="fixed left-0 top-0 h-full w-64 z-40 bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-2xl border-r border-slate-200/30 dark:border-slate-800/30 shadow-xl dark:shadow-2xl flex flex-col py-6 pt-20 transform -translate-x-full md:translate-x-0 transition-transform duration-300" id="side-nav">
         <div className="px-6 mb-8 flex items-center gap-3 cursor-pointer" onClick={() => { window.location.href = '/dashboard_sleek'; }}>
-          <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-            <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>hub</span>
-          </div>
+          <img
+            src="/logo.png"
+            alt="EdiPro logo"
+            className="h-10 w-10 rounded-xl object-contain shadow-lg shadow-primary/20"
+          />
           <div>
-            <h2 className="text-lg font-black text-slate-900 dark:text-white leading-none">HealthConnect</h2>
+            <h2 className="text-lg font-black text-slate-900 dark:text-white leading-none">EdiPro</h2>
             <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mt-1">EDI Gateway</p>
           </div>
           <button className="md:hidden ml-auto p-2 hover:bg-slate-200/50 rounded-full" id="nav-close" aria-label="Close navigation menu" type="button">
@@ -293,8 +659,15 @@ export function Remittance835Page() {
                   const isValid = file.is_valid;
                   const statusClass = isValid ? 'bg-[#E6F4EA] text-[#1E7E34]' : 'bg-[#FCE8E8] text-[#D32F2F]';
                   const statusText = isValid ? 'Valid' : 'Error';
-                  return (
-                    <tr key={file.id} className="hover:bg-primary/5 transition-colors group cursor-pointer" onClick={() => { localStorage.setItem('selectedFileId', file.id); window.location.href = '/master_parser_sleek'; }}>
+                  const isExpanded = !!expandedRows[file.id];
+                  const storyState = claimStoriesByFile[file.id] || { loading: false, error: null, claims: [] };
+
+                  return [
+                    <tr
+                      key={`${file.id}-row`}
+                      className="hover:bg-primary/5 transition-colors group cursor-pointer"
+                      onClick={() => toggleRow(file.id)}
+                    >
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
                           <span className="text-sm font-bold text-on-surface">{file.filename}</span>
@@ -306,12 +679,131 @@ export function Remittance835Page() {
                       <td className="px-6 py-4"><span className="text-sm text-on-surface-variant">{file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '-'}</span></td>
                       <td className="px-6 py-4"><span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${statusClass}`}>{statusText}</span></td>
                       <td className="px-6 py-4 text-right">
-                        <button className="opacity-0 group-hover:opacity-100 p-2 hover:bg-primary/10 rounded-lg text-primary transition-all" type="button">
-                          <span className="material-symbols-outlined text-sm">chevron_right</span>
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleRow(file.id);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-primary hover:bg-primary/10 transition-all"
+                            type="button"
+                          >
+                            {isExpanded ? 'Hide claims' : 'View claims'}
+                            <span
+                              className="material-symbols-outlined text-sm"
+                              style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}
+                            >
+                              chevron_right
+                            </span>
+                          </button>
+                          <button
+                            className="opacity-0 group-hover:opacity-100 p-2 hover:bg-primary/10 rounded-lg text-primary transition-all"
+                            type="button"
+                            title="Open in Master Parser"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              localStorage.setItem('selectedFileId', file.id);
+                              window.location.href = '/master_parser_sleek';
+                            }}
+                          >
+                            <span className="material-symbols-outlined text-sm">open_in_new</span>
+                          </button>
+                        </div>
                       </td>
-                    </tr>
-                  );
+                    </tr>,
+                    isExpanded && (
+                      <tr key={`${file.id}-detail`} className="bg-slate-50/60">
+                        <td colSpan={6} className="px-6 py-5">
+                          <div className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm">
+                            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">835 Remittance Summary</p>
+                                <h3 className="text-sm font-extrabold text-slate-900 mt-1">Claim-level Financial Storytelling</h3>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  localStorage.setItem('selectedFileId', file.id);
+                                  window.location.href = '/master_parser_sleek';
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 transition-all"
+                              >
+                                <span className="material-symbols-outlined text-sm">open_in_new</span>
+                                Open full parse
+                              </button>
+                            </div>
+
+                            {storyState.loading ? (
+                              <div className="flex items-center gap-2 text-sm text-slate-500">
+                                <span className="w-3 h-3 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin inline-block"></span>
+                                Building claim summaries from CLP, CAS, NM1/QC, and TRN/REF...
+                              </div>
+                            ) : storyState.error ? (
+                              <p className="text-sm text-red-600">{storyState.error}</p>
+                            ) : storyState.claims.length === 0 ? (
+                              <p className="text-sm text-slate-500 italic">No claim-level CLP data found in this remittance file.</p>
+                            ) : (
+                              <div className="space-y-3">
+                                {storyState.claims.map((claim, idx) => (
+                                  <div key={`${file.id}-claim-${claim.claimId || idx}`} className="rounded-lg border border-slate-200/70 bg-slate-50/60 p-4">
+                                    <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                                      <div>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Claim ID</p>
+                                        <p className="text-sm font-black text-slate-900 mt-1">{claim.claimId || 'Unknown claim'}</p>
+                                      </div>
+                                      <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700 border border-blue-200">
+                                        {claim.claimStatusCode ? `${claim.claimStatusCode} - ${claim.claimStatusLabel}` : claim.claimStatusLabel}
+                                      </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+                                      <div className="rounded-lg border border-slate-200/70 bg-white p-3">
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Billed</p>
+                                        <p className="text-sm font-bold text-slate-900 mt-1">{formatMoney(claim.billed)}</p>
+                                      </div>
+                                      <div className="rounded-lg border border-slate-200/70 bg-white p-3">
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Paid</p>
+                                        <p className="text-sm font-bold text-emerald-700 mt-1">{formatMoney(claim.paid)}</p>
+                                      </div>
+                                      <div className="rounded-lg border border-slate-200/70 bg-white p-3">
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Patient Responsibility</p>
+                                        <p className="text-sm font-bold text-amber-700 mt-1">{formatMoney(claim.patientResponsibility)}</p>
+                                      </div>
+                                      <div className="rounded-lg border border-slate-200/70 bg-white p-3">
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Patient</p>
+                                        <p className="text-sm font-bold text-slate-900 mt-1">{claim.patientName}</p>
+                                      </div>
+                                      <div className="rounded-lg border border-slate-200/70 bg-white p-3">
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Payment Ref</p>
+                                        <p className="text-sm font-bold text-slate-900 mt-1">{claim.paymentReference}</p>
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-3 rounded-lg border border-slate-200/70 bg-white p-3">
+                                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Adjustments</p>
+                                      {claim.adjustments.length === 0 ? (
+                                        <p className="text-xs text-slate-500 italic">No CAS adjustments reported for this claim.</p>
+                                      ) : (
+                                        <ul className="space-y-1.5">
+                                          {claim.adjustments.map((adj) => (
+                                            <li key={`${claim.claimId}-${adj.code}`} className="text-xs text-slate-700">
+                                              <span className="font-black text-slate-900">{adj.code}</span>: {adj.label}
+                                              <span className="ml-2 text-slate-500">({formatMoney(adj.amount)})</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  ];
                 })}
               </tbody>
             </table>

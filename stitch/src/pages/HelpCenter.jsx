@@ -20,7 +20,10 @@ export function HelpCenterPage() {
     <>
       <header className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-6 py-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-sm dark:shadow-none">
         <div className="flex items-center gap-8">
-          <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-slate-50">EdiPro</span>
+          <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-slate-50 flex items-center gap-2">
+            <img src="/logo.png" alt="EdiPro logo" className="h-6 w-6 rounded-md object-contain" />
+            <span>EdiPro</span>
+          </span>
           <nav className="hidden md:flex gap-6 items-center">
             <a
               className="font-sans tracking-tight text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors px-3 py-1.5 rounded-lg"

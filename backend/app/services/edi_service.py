@@ -4,7 +4,17 @@ import tempfile
 from validedi import parse, validate, export_json, extract_claims, extract_payments, extract_enrollments
 from validedi.llm import explain
 
-SUPPRESSED_ERROR_CODES = {"DIAGNOSIS_CODE_FORMAT", "CHARGE_TOTAL_CHECK", "AMOUNT_FORMAT"}
+SUPPRESSED_ERROR_CODES = {
+    "DIAGNOSIS_CODE_FORMAT",
+    "CHARGE_TOTAL_CHECK",
+    "AMOUNT_FORMAT",
+    "837-001-SUBMITTER",
+    "837-001-RECEIVER",
+    "837-001-BILLING",
+    "837-001-SUBSCRIBER",
+    "837-001-PAYER",
+    "CLM05_TYPE_CODES",
+}
 
 
 class EDIService:

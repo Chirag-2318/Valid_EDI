@@ -21,7 +21,17 @@ from app.db_models import EDIFile, ParseResult, ValidationErrorDB
 from app.services.chat import ask_huggingface
 
 router = APIRouter()
-SUPPRESSED_ERROR_CODES = {"DIAGNOSIS_CODE_FORMAT", "CHARGE_TOTAL_CHECK", "AMOUNT_FORMAT"}
+SUPPRESSED_ERROR_CODES = {
+    "DIAGNOSIS_CODE_FORMAT",
+    "CHARGE_TOTAL_CHECK",
+    "AMOUNT_FORMAT",
+    "837-001-SUBMITTER",
+    "837-001-RECEIVER",
+    "837-001-BILLING",
+    "837-001-SUBSCRIBER",
+    "837-001-PAYER",
+    "CLM05_TYPE_CODES",
+}
 
 
 class AnalyzeRequest(BaseModel):
@@ -379,6 +389,11 @@ async def fix_with_llm(
 
     # Fetch fresh errors
     remaining_errors = (await db.execute(select(ValidationErrorDB).where(ValidationErrorDB.file_id == fid))).scalars().all()
+    filtered_remaining = [
+        e for e in remaining_errors
+        if (e.error_code or "") not in SUPPRESSED_ERROR_CODES
+        and (e.severity or "").lower() != "warning"
+    ]
 
     return {
         "success": True,

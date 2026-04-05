@@ -66,7 +66,10 @@ export function UserProfilePage() {
     <>
       <header className="fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl flex justify-between items-center px-6 py-3 shadow-sm dark:shadow-none transition-all duration-200">
         <div className="flex items-center gap-8">
-          <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-white cursor-pointer" onClick={() => window.location.reload()}>EdiPro</span>
+          <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-white cursor-pointer flex items-center gap-2" onClick={() => window.location.reload()}>
+            <img src="/logo.png" alt="EdiPro logo" className="h-6 w-6 rounded-md object-contain" />
+            <span>EdiPro</span>
+          </span>
           <nav className="hidden md:flex gap-6">
             <a className="text-slate-500 dark:text-slate-400 hover:text-slate-800 py-1 transition-all" href="/dashboard_sleek">Dashboard</a>
             {canClaims ? (

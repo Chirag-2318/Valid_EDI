@@ -146,7 +146,10 @@ export function AdminUsersPage() {
     <div className="min-h-screen bg-surface">
       <header className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-6 py-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-sm dark:shadow-none">
         <div className="flex items-center gap-8">
-          <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-slate-50">EdiPro</span>
+          <span className="text-xl font-bold tracking-tighter text-slate-900 dark:text-slate-50 flex items-center gap-2">
+            <img src="/logo.png" alt="EdiPro logo" className="h-6 w-6 rounded-md object-contain" />
+            <span>EdiPro</span>
+          </span>
           <nav className="hidden md:flex gap-6">
             <a className="text-slate-500 hover:text-slate-900 text-sm font-medium" href="/dashboard_sleek">Dashboard</a>
             <a className="text-slate-500 hover:text-slate-900 text-sm font-medium" href="/settings">Settings</a>
