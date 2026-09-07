@@ -29,6 +29,7 @@ htmlcov/
 venv/
 env/
 ENV/
+.env
 
 # Build and runtime artifacts
 build/
@@ -66,3 +67,9 @@ playwright-report/
 
 # Docker/local data
 docker-data/
+
+#extra 
+.env
+.env.*
+backend/.env
+backend/.env.*
