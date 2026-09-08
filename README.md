@@ -2,9 +2,24 @@
 
 **End-to-end EDI processing platform for the US healthcare ecosystem.**
 
+[![Domain](https://img.shields.io/badge/domain-Healthcare%20EDI-0A66C2?style=flat-square)](#supported-transaction-sets)
+[![Standard](https://img.shields.io/badge/standard-HIPAA%20X12-2E8B57?style=flat-square)](#supported-transaction-sets)
+[![Validation](https://img.shields.io/badge/validation-config--driven%20(YAML)-orange?style=flat-square)](#architecture)
+[![AI](https://img.shields.io/badge/AI-LLM--powered-6f42c1?style=flat-square)](#features)
+
 EDIPRO eliminates the need to manually read or decode complex HIPAA X12 EDI transaction sets (837P, 837I, 835, 834). It automatically parses, validates, and extracts key information — claim IDs, NPI codes, patient details, service lines, diagnosis codes, and payment data — and flags errors before they cause claim rejections.
 
 Built for anyone who works with X12 files: billing specialists, developers, and operations managers alike. No EDI expertise required — EDIPRO translates raw X12 syntax into clean, human-readable reports instantly.
+
+---
+
+## Table of Contents
+
+- [Why EDIPRO](#why-edipro)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Supported Transaction Sets](#supported-transaction-sets)
+- [Tech Highlights](#tech-highlights)
 
 ---
 
@@ -72,7 +87,7 @@ Compares two consecutive 834 files and surfaces net additions, terminations, and
 
 ![834 Change Delta Comparison](img/q6.jpeg)
 
-### 834 Eligibility Cross-check
+### 834 Eligibility Cross-Check
 Compares the 834 member roster against an 837 claims file; flags claims submitted for terminated or not-yet-effective members.
 
 ![NPI Validation and 834 Eligibility Cross-check](img/q1.jpeg)
